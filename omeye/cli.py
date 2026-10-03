@@ -9,7 +9,7 @@ import sys
 import time
 
 from . import config
-from .config import CALIBRATION_PATH, SERVICE
+from .config import CALIBRATION_PATH, DRIFT_PATH, SERVICE
 
 
 def systemctl(*args: str) -> subprocess.CompletedProcess:
@@ -75,6 +75,12 @@ def cmd_status(cfg, args) -> int:
         c = json.loads(CALIBRATION_PATH.read_text())
         print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, {c.get('kind', 'basic')} model, "
               f"error {100 * c['error']:.1f}% of screen width")
+        with contextlib.suppress(OSError, ValueError, KeyError):
+            d = json.loads(DRIFT_PATH.read_text())
+            if d.get("calibration") == c["created"] and d.get("records"):
+                from .drift import Drift
+
+                print(f"since then:  {Drift(d['aspect'], 0.05, c['created'], DRIFT_PATH).describe()}")
     else:
         print("calibration: none (run `omeye calibrate`)")
     from .tracker import pick_camera
@@ -112,6 +118,13 @@ def cmd_refine(cfg, args) -> int:
 
     with camera_free():
         return run(cfg, args.seconds)
+
+
+def cmd_recentre(cfg, args) -> int:
+    from .recentre import run
+
+    with camera_free():
+        return run(cfg)
 
 
 def cmd_test(cfg, args) -> int:
@@ -211,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("refine", help="follow the mouse pointer with your eyes to improve the calibration")
     p.add_argument("--seconds", type=float, default=60, help="stop after this long (default 60)")
     sub.add_parser("test", help="look at 9 dots: how good the calibration is now, and which model does best")
+    sub.add_parser("recentre", help="look at one dot after sitting differently: omeye shifts its estimates to match")
     p = sub.add_parser("preview", help="show where omeye thinks you look")
     p.add_argument("--switch", action="store_true", help="also switch focus")
     p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")

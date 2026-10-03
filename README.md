@@ -2,15 +2,15 @@
 
 Look at a window and it gets focus. omeye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omeye toggle` (or a key bound to it).
 
-Status: version 0.6. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). Settings are tuned by replaying the saved calibration frames, not yet by live use.
+Status: version 0.7. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). When omeye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omeye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use.
 
 ## How it works
 
 ```
 webcam frame ─► face + iris landmarks ─► gaze features ─► point on screen ─► window ─► focus
-  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated       (chance of  (99%: now;
-                 Landmarker, 478 points)   eye-direction       regression,       each window 90%: 0.25 s)
-                                           scores, head pose)  kept on screen)   in the layout)
+  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated,      (chance of  (99%: now;
+                 Landmarker, 478 points)   eye-direction       plus the shift    each window 90%: 0.25 s)
+                                           scores, head pose)  learned since)    in the layout)
 ```
 
 1. **Features.** Two sets are recorded, and calibration keeps whichever predicts better on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
@@ -19,6 +19,13 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
 6. **Switching.** How long omeye waits depends on how sure it is. At 99% focus moves at once, which happens within a few frames when you look clearly into a window: about 0.1 s in simulation, 0.2 s replayed on real calibration data for side-by-side or 2×2 windows. Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about three times a minute. Windows stacked top and bottom stay slower (about 0.5 s on the replay): up-down is the weaker direction for a camera above the screen, so the evidence rarely reaches 99%. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
+7. **A glance retries.** If omeye focuses the wrong window, look up at the camera (or anywhere well away, but not down) and straight back, within 2 s of the switch. Focus moves on to the runner-up: the likeliest window next to where you are looking, leaving out the ones already tried. Another glance tries the next one. To count, the look away lasts 0.1–0.7 s and goes at least 12% of the screen width from where you were looking. The first 0.3 s after a switch don't count, because the estimate is still settling from the eye movement. While a look away is under way, omeye doesn't switch; longer than 0.7 s, it was a move, and switching carries on as usual. A look down and back is at the keyboard and doesn't count. Once you type or move the mouse, the window is accepted and glances do nothing. The log says `retry: A -> B`, and a window just rejected isn't focused again within 3 s.
+8. **Learning how you sit now.** Sitting differently moves every estimate by about the same amount (see [Picking the neighbouring window](#picking-the-neighbouring-window)). omeye learns that shift (`drift.py`) from three kinds of record:
+   - a retry: the window it ends on is where you were looking;
+   - focus you move yourself within 3 s of omeye moving it, the same;
+   - lightly (0.3 of a record), a second of typing with the pointer still, at most every 4 s: you mostly look at the window you type into.
+
+   The shift is the smallest one that puts each recorded estimate inside its window, a calibration error from the edges. Newer records count more (an hour-old one counts half), and a record that disagrees with the rest counts less, so the odd look elsewhere while typing doesn't drag the shift along. A correction that would need more than 30% of the screen width isn't learned. The shift is kept in `~/.local/state/omeye/drift.json` across restarts, shown by `omeye status`, and dropped by a new calibration. `omeye recentre` measures it directly: one dot in the middle of the screen for 2 s, and that replaces what was learned. With `learn = false`, a recentre still applies, but nothing is learned.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
@@ -41,16 +48,18 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 4. Optional, and worth it: `omeye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
 5. Check: `omeye preview` draws a ring where omeye thinks you are looking (green when it is on the focused window) without changing focus. `omeye preview --switch` changes focus too.
 6. Use: `omeye on`, `omeye off`, `omeye toggle`.
+7. After sitting differently (another chair, the camera nudged): `omeye recentre`. Or just carry on: retries, your corrections and typing teach omeye the new shift within a few minutes.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `omeye on` / `off` / `toggle` | Start or stop the service, with a desktop notification |
-| `omeye status` | Service state, calibration age and error, chosen camera |
+| `omeye status` | Service state, calibration age and error, the shift learned since, chosen camera |
 | `omeye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots); starts the samples afresh |
 | `omeye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each kind of model fitted on your samples does; Enter switches to a clearly better one |
 | `omeye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
+| `omeye recentre` | One dot in the middle of the screen: how far the estimates have shifted since calibration; omeye shifts them back |
 | `omeye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
 | `omeye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
 | `omeye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
@@ -59,7 +68,7 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 
 The camera view also appears, large, on the start screens of `calibrate` and `refine`, and in the bottom-right corner during `preview`. It draws a dot per face landmark, circles on the irises and the face outline: green when the face is well placed, amber near an edge of the image, red when it's cut off. Below it: the eye's width in pixels, brightness, frames per second and what to do about the camera's aim. Frames go to the overlay in memory and are never written to disk.
 
-`calibrate`, `refine`, `preview`, `camera` and `bench` pause the service while they use the camera, then start it again.
+`calibrate`, `refine`, `recentre`, `test`, `preview`, `camera` and `bench` pause the service while they use the camera, then start it again.
 
 The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
@@ -77,6 +86,8 @@ switch_rate = 1.5        # expected gaze moves between windows per second (highe
 typing_grace_ms = 700    # no switching until this long after the last key
 mouse_grace_ms = 2000    # the mouse wins for this long after it moves
 offscreen = 0.15         # further outside the monitor than this counts as looking away
+retry_ms = 2000          # after a switch, a glance away and back this soon moves focus to the runner-up (0: off)
+learn = true             # learn the shift since calibration from retries, your corrections and typing
 ```
 
 ## Geometric model
@@ -103,6 +114,32 @@ A calibration at 23:43 held the head almost still: MediaPipe's distance stayed w
 | Geometric model | 8.3% | 19.1% |
 
 The preview now says so when most gaze estimates fall off the screen, and the service log counts them.
+
+## Picking the neighbouring window
+
+With many windows open, omeye sometimes focused the window next to the one being looked at. On the `omeye test` recording from another sitting (9 dots, scored with the current calibration, the geometric model), nearly all of the error is one shift, the same for every dot: the estimates sat 16.4% of the screen width left of and 9.0% above where the eyes were. Error of each dot's average estimate, share of the screen width:
+
+| | Other sitting | Calibration's own sitting |
+|---|---|---|
+| As it is | 18.9% | 4.7% |
+| After taking away one shift, the same for every dot | 4.7% | 4.6% |
+| After taking away a full affine map | 4.0% | 4.6% |
+| One shift measured on 1, 2 or 3 dots, scored on the others | 6.9%, 6.0%, 5.7% | |
+
+With four windows side by side, each is 25% of the width, so a shift of 16% puts most looks into a neighbour. Hence the glance retry, learning the shift, and `omeye recentre`.
+
+The frames of both sittings were replayed through the 7 windows on workspace 1 at the time (3072 × 1728 logical pixels; windows 750–1520 px wide, 430–890 px tall). Each look goes to a random spot in a random window for 4 s, carrying a random dot's own error. The simulated you glances up 0.4 s after omeye picks wrong, fixes focus by hand if it is still wrong 1.5 s in, and in 60% of looks then types for 2 s (in 15% of those while reading another window). Share of looks where the right window had focus at 1.5 s, minutes 3–5 of five, four runs each:
+
+| | Same sitting | Other sitting | Other sitting, after `omeye recentre` |
+|---|---|---|---|
+| As before | 91% | 30% | 94% |
+| Glance retry only | 93% | 36% | 95% |
+| Retry, learning from retries and your corrections | 92% | 91% | 95% |
+| ... and from typing (now) | 93% | 97% | 95% |
+
+In the other sitting, five minutes went from 32 wrong switches and 54 fixes by hand to 2 and 8. The first minute, before much is learned, is at 64% (28% before). Typing records without the margin inside the window, or at 0.1 of a record, did worse there (89–94%), and without the margin also in the same sitting (86%).
+
+The first replay found retries where nobody glanced. In the first 0.3 s after the eyes land on a spot, the estimate is still settling, up to 26% of the width away from where it ends up. Replayed in a loop, that looks like a look away and back, and live it can follow a quick switch the same way. So the glance detector now lets the estimate settle for 0.3 s after each switch.
 
 ## Processor load
 
@@ -170,7 +207,9 @@ omeye/            Python package
   validate.py     omeye test
   refine.py       pointer-following refinement
   samples.py      stored calibration samples
-  focus.py        chance of each window, belief, when to switch
+  focus.py        chance of each window, belief, when to switch, glance retry
+  drift.py        the shift since calibration, learned from corrections
+  recentre.py     omeye recentre
   filters.py      One Euro filter
   activity.py     typing and mouse activity
   hypr.py         Hyprland socket
@@ -182,6 +221,6 @@ tests/            pytest: uv run pytest
 
 ## Ideas for later
 
-- Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omeye refine` does this on purpose).
+- Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omeye refine` does this on purpose). Typing already teaches omeye the shift window by window; a click would pin it to a point, but telling a click from a key press needs `/dev/input`.
 - A bar indicator and toggle as an Omarchy plugin, next to `rb.monitor` and `rb.overview` in `omarchy-rb-plugins`.
 - Gaze across several monitors (calibration currently covers the one the camera sits on).

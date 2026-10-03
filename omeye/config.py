@@ -15,6 +15,7 @@ DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "omeye
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 CALIBRATION_PATH = STATE_DIR / "calibration.json"
 SAMPLES_PATH = STATE_DIR / "calibration-samples.npz"  # raw numbers from the last calibration
+DRIFT_PATH = STATE_DIR / "drift.json"  # the shift learned from your corrections (drift.py)
 MODEL_PATH = DATA_DIR / "models/face_landmarker.task"
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
@@ -48,6 +49,9 @@ class Config:
     typing_grace_ms: int = 700  # no switching until this long after the last key/click
     mouse_grace_ms: int = 2000  # the mouse wins for this long after it moves
     cooldown_ms: int = 300  # minimum time between two switches
+    retry_ms: int = 2000  # after a switch, a glance away and back this soon sends focus to the runner-up
+    glance_ms: int = 700  # a look away longer than this is a move, not a glance
+    learn: bool = True  # learn the shift since calibration from retries and your own focus changes
     lost_ms: int = 500  # face missing this long resets the gaze filter
     away_ms: int = 3000  # face missing this long: check only every 6th frame
     offscreen: float = 0.15  # gaze further outside the monitor than this (fraction) counts as looking away

@@ -1,6 +1,6 @@
 import numpy as np
 
-from omeye.focus import AWAY, Belief, BeliefParams, on_screen, window_chances
+from omeye.focus import AWAY, Belief, BeliefParams, Glance, on_screen, runner_up, window_chances
 from omeye.hypr import Window
 
 W, H = 3072, 1728  # the 4K monitor at scale 1.25, logical pixels
@@ -36,7 +36,7 @@ def test_off_the_windows_is_away():
     assert c[AWAY] > 0.99
 
 
-def look(belief, t0, t1, points, focused="0x0", rng=None, jitter=0.035 * W, last_input=-99.0, dt=1 / 30):
+def look(belief, t0, t1, points, focused="0x0", rng=None, jitter=0.035 * W, last_input=-99.0, dt=1 / 30, avoid=()):
     """Feed frames looking at `points` (cycled) with jitter; return the switches."""
     rng = rng or np.random.default_rng(0)
     out = []
@@ -45,7 +45,7 @@ def look(belief, t0, t1, points, focused="0x0", rng=None, jitter=0.035 * W, last
     while t < t1:
         x, y = points[i % len(points)]
         c = window_chances(TILES, x + rng.normal(0, jitter), y + rng.normal(0, jitter), SIGMA)
-        chosen = belief.step(t, c, focused, last_input, -99.0)
+        chosen = belief.step(t, c, focused, last_input, -99.0, avoid=avoid)
         if chosen:
             out.append((round(t, 2), chosen))
             focused = chosen
@@ -110,3 +110,78 @@ def test_no_face_drifts_to_away_and_windows_can_appear():
     assert b.top()[0] is AWAY
     b.observe(3.0, {"0xnew": 0.9, AWAY: 0.1})
     assert set(b.b) == {"0xnew", AWAY}
+
+
+# A glance away and back after a switch: retry.
+
+ASPECT = H / W
+
+
+def run_glance(g, frames, t0=0.0, dt=1 / 30):
+    """Feed (point or None) frames; return the times a glance finished."""
+    out = []
+    for i, p in enumerate(frames):
+        if g.update(t0 + i * dt, p):
+            out.append(round(t0 + i * dt, 2))
+    return out
+
+
+def test_a_glance_up_and_back_is_noticed():
+    g = Glance(ASPECT)
+    g.arm(0.0, (0.3, 0.4))
+    here, up = (0.3, 0.4), (0.32, -0.1)
+    done = run_glance(g, [here] * 10 + [up] * 9 + [here] * 3)
+    assert len(done) == 1 and abs(g.spot[0] - 0.3) < 0.02 and not g.armed
+
+
+def test_a_glance_without_a_face_counts_and_one_stray_frame_does_not():
+    g = Glance(ASPECT)
+    g.arm(0.0, (0.3, 0.4))
+    assert run_glance(g, [(0.3, 0.4)] * 5 + [(0.9, 0.4)] + [(0.3, 0.4)] * 10) == []
+    assert run_glance(g, [None] * 8 + [(0.3, 0.4)] * 3, t0=1.0) != []
+
+
+def test_looking_away_for_long_is_a_move_not_a_glance():
+    g = Glance(ASPECT, longest=0.7)
+    g.arm(0.0, (0.3, 0.4))
+    assert run_glance(g, [(0.3, 0.4)] * 12 + [(0.8, 0.4)] * 30 + [(0.3, 0.4)] * 5) == []
+    assert not g.armed
+
+
+def test_a_look_down_at_the_keyboard_is_not_a_glance():
+    g = Glance(ASPECT)
+    g.arm(0.0, (0.3, 0.4))
+    assert run_glance(g, [(0.3, 0.4)] * 12 + [(0.3, 1.2)] * 9 + [(0.3, 0.4)] * 3) == []
+    assert g.armed  # still there for a real glance
+
+
+def test_the_estimate_settling_after_the_switch_is_not_a_glance():
+    # Right after a quick switch the estimate is still landing: it wanders off
+    # the first anchor and back within the first 0.3 s.
+    g = Glance(ASPECT)
+    g.arm(0.0, (0.3, 0.4))
+    assert run_glance(g, [(0.45, 0.4)] * 5 + [(0.3, 0.4)] * 20) == []
+    assert g.armed
+
+
+def test_no_glance_after_the_retry_window():
+    g = Glance(ASPECT, window=2.0)
+    g.arm(0.0, (0.3, 0.4))
+    assert run_glance(g, [(0.3, 0.4)] * 70 + [(0.3, -0.1)] * 9 + [(0.3, 0.4)] * 3) == []
+
+
+def test_runner_up_is_the_neighbour_nearest_the_estimate():
+    # Estimate in the top-left tile, near its right edge: the top-right tile.
+    assert runner_up(TILES, W * 0.45, H * 0.25, SIGMA, ["0x0"]) == "0x1"
+    # ... near its bottom edge: the bottom-left tile.
+    assert runner_up(TILES, W * 0.25, H * 0.45, SIGMA, ["0x0"]) == "0x2"
+    assert runner_up(TILES, W * 0.45, H * 0.25, SIGMA, ["0x0", "0x1"]) in ("0x2", "0x3")
+    assert runner_up(TILES[:1], W * 0.25, H * 0.25, SIGMA, ["0x0"]) is None
+
+
+def test_settle_and_avoid_keep_a_retry_from_being_undone():
+    b = Belief(BeliefParams())
+    look(b, 0, 1, [(W * 0.25, H * 0.25)])  # the estimate says top-left...
+    b.settle("0x1")  # ... but a glance sent focus to top-right
+    assert b.top() == ("0x1", b.top()[1]) and b.top()[1] > 0.95
+    assert look(b, 1, 2, [(W * 0.25, H * 0.25)], focused="0x1", avoid=("0x0",)) == []
