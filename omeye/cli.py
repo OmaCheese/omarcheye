@@ -114,6 +114,13 @@ def cmd_refine(cfg, args) -> int:
         return run(cfg, args.seconds)
 
 
+def cmd_camera(cfg, args) -> int:
+    from .camview import show
+
+    with camera_free():
+        return show(cfg)
+
+
 def cmd_cameras(cfg, args) -> int:
     from .tracker import list_cameras, pick_camera
 
@@ -181,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--preview", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="never change focus")
     p.add_argument("-v", "--verbose", action="store_true")
+    sub.add_parser("camera", help="show what the camera sees, with the tracking drawn on (Ctrl+C to close)")
     sub.add_parser("cameras", help="list cameras")
     p = sub.add_parser("bench", help="measure landmark speed and CPU use")
     p.add_argument("--seconds", type=float, default=10)

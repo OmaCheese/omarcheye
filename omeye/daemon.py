@@ -12,6 +12,7 @@ from .focus import Dwell, DwellParams, hit_test
 from .hypr import Hypr, HyprError
 from .model import GazeModel
 from .overlay_client import OverlayProcess
+from .camview import CameraFeed
 from .tracker import Camera, FaceTracker, framing_advice, pick_camera
 
 STATS_EVERY = 30.0
@@ -80,6 +81,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     gaze_filter = OneEuro2D(cfg.filter_min_cutoff, cfg.filter_beta)
     dwell = Dwell(DwellParams.from_config(cfg))
     overlay = OverlayProcess(model.monitor, "follow") if preview else None
+    feed = CameraFeed(overlay, "corner") if overlay else None
     lost = cfg.lost_ms / 1000
     away = cfg.away_ms / 1000
 
@@ -109,6 +111,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
             last_frame = now
             seen = tracker.process(frame, now)
             sample = None if seen is None or seen.cut_off else seen  # cut-off face: eye landmarks are guesses
+            if feed:
+                feed.update(frame, seen)
             stats["busy"] += time.monotonic() - now
             stats["frames"] += 1
 

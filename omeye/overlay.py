@@ -10,23 +10,31 @@ JSON lines on stdin and events leave as JSON lines on stdout.
 Commands: {"cmd": "text", "text": ...}, {"cmd": "dot", "x", "y", "ms"} (no x
 to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "grid",
 "cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
-{"cmd": "quit"}.
+{"cmd": "camera", "jpeg": base64, "caption", "place": "center" | "corner"}
+(no jpeg to hide), {"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
 
 import argparse
+import base64
 import json
 import sys
 import threading
 import time
+import warnings
 
 import cairo
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
+
+# Still the simplest way to paint a JPEG with cairo; GTK 4 marks it deprecated.
+warnings.filterwarnings("ignore", "Gdk.cairo_set_source_pixbuf", DeprecationWarning)
 
 CSS = b"""
 window.omeye-calibrate { background: #111318; }
@@ -46,6 +54,7 @@ class Overlay(Gtk.ApplicationWindow):
         self.dot = None  # (x, y, start, seconds)
         self.gaze = None  # (x, y, on_target)
         self.grid = None  # (cols, rows, fill per cell)
+        self.camera = None  # (pixbuf, caption, place)
         self.add_css_class(f"omeye-{mode}")
 
         LayerShell.init_for_window(self)
@@ -76,8 +85,6 @@ class Overlay(Gtk.ApplicationWindow):
         self.add_tick_callback(self.tick)
 
     def on_key(self, _ctl, keyval, _code, _state) -> bool:
-        from gi.repository import Gdk
-
         emit(event="key", key=Gdk.keyval_name(keyval))
         return True
 
@@ -92,6 +99,14 @@ class Overlay(Gtk.ApplicationWindow):
             self.text = msg.get("text", "")
         elif cmd == "dot":
             self.dot = (msg["x"], msg["y"], time.monotonic(), msg.get("ms", 1000) / 1000) if "x" in msg else None
+        elif cmd == "camera":
+            if "jpeg" in msg:
+                loader = GdkPixbuf.PixbufLoader.new_with_type("jpeg")
+                loader.write(base64.b64decode(msg["jpeg"]))
+                loader.close()
+                self.camera = (loader.get_pixbuf(), msg.get("caption", ""), msg.get("place", "corner"))
+            else:
+                self.camera = None
         elif cmd == "grid":
             self.grid = (msg["cols"], msg["rows"], msg["fill"]) if "cols" in msg else None
         elif cmd == "gaze":
@@ -136,6 +151,39 @@ class Overlay(Gtk.ApplicationWindow):
             cr.stroke()
         if self.text:
             self.draw_text(cr, width, height)
+        if self.camera:
+            self.draw_camera(cr, width, height)
+
+    def draw_camera(self, cr: cairo.Context, width: int, height: int) -> None:
+        pixbuf, caption, place = self.camera
+        lines = caption.split("\n") if caption else []
+        size, pad = 17, 12
+        w = min(640, width * 0.4) if place == "center" else min(400, width * 0.25)
+        scale = w / pixbuf.get_width()
+        h = pixbuf.get_height() * scale
+        box_h = h + pad + len(lines) * size * 1.4
+        if place == "center":
+            x = (width - w) / 2
+            y = height * 0.56 if self.mode == "calibrate" else (height - box_h) / 2
+        else:
+            x, y = width - w - 24, height - box_h - 24
+        cr.set_source_rgba(0.07, 0.07, 0.09, 0.88)
+        cr.rectangle(x - pad, y - pad, w + 2 * pad, box_h + 2 * pad)
+        cr.fill()
+        cr.save()
+        cr.translate(x, y)
+        cr.scale(scale, scale)
+        Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+        cr.paint()
+        cr.restore()
+        cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(size)
+        cr.set_source_rgb(0.92, 0.92, 0.94)
+        ty = y + h + pad + size
+        for line in lines:
+            cr.move_to(x, ty)
+            cr.show_text(line)
+            ty += size * 1.4
 
     def draw_text(self, cr: cairo.Context, width: int, height: int) -> None:
         size = 26 if self.mode == "calibrate" else 18
@@ -171,8 +219,6 @@ def main() -> None:
     app = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
 
     def activate(app: Gtk.Application) -> None:
-        from gi.repository import Gdk
-
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, 600)
         win = Overlay(app, args.monitor, args.mode)
         win.present()

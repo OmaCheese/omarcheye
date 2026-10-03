@@ -36,7 +36,7 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
    ```
 
    `install.sh` creates the Python environment (`uv sync`), downloads the face landmark model to `~/.local/share/omeye/models/`, builds the input-activity helper (`make`), links `omeye` into `~/.local/bin` and installs the `omeye.service` systemd user unit. The unit is not started at login.
-3. Calibrate: `omeye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
+3. Aim the camera: `omeye camera` shows its view. Your face should sit in the middle with a green outline. Then calibrate: `omeye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
 4. Optional, and worth it: `omeye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
 5. Check: `omeye preview` draws a ring where omeye thinks you are looking (green when it is on the focused window) without changing focus. `omeye preview --switch` changes focus too.
 6. Use: `omeye on`, `omeye off`, `omeye toggle`.
@@ -51,10 +51,13 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 | `omeye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
 | `omeye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
 | `omeye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
+| `omeye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
 | `omeye cameras` | List cameras and mark the one in use |
 | `omeye bench [--seconds S]` | Landmark speed and processor load |
 
-`calibrate`, `refine`, `preview` and `bench` pause the service while they use the camera, then start it again.
+The camera view also appears, large, on the start screens of `calibrate` and `refine`, and in the bottom-right corner during `preview`. It draws a dot per face landmark, circles on the irises and the face outline: green when the face is well placed, amber near an edge of the image, red when it's cut off. Below it: the eye's width in pixels, brightness, frames per second and what to do about the camera's aim. Frames go to the overlay in memory and are never written to disk.
+
+`calibrate`, `refine`, `preview`, `camera` and `bench` pause the service while they use the camera, then start it again.
 
 The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
@@ -97,6 +100,7 @@ omeye/            Python package
   cli.py          commands
   daemon.py       tracking loop
   calibrate.py    dot calibration
+  camview.py      camera view for the overlay
   tracker.py      camera, MediaPipe, gaze features
   model.py        calibrated regression
   refine.py       pointer-following refinement

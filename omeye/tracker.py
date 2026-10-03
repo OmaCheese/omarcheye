@@ -41,6 +41,7 @@ class Sample:
     openness: float  # eyelid gap / eye width, both eyes averaged
     pos: tuple[float, float] = (0.5, 0.5)  # face centre in the camera image, 0..1
     margin: float = 1.0  # nearest landmark to the image border, as a fraction of the image
+    points: np.ndarray | None = None  # all landmarks in image pixels, for the camera view
 
     @property
     def cut_off(self) -> bool:
@@ -157,6 +158,7 @@ class FaceTracker:
         lo, hi = points.min(0), points.max(0)
         sample.pos = (float(lo[0] + hi[0]) / 2 / w, float(lo[1] + hi[1]) / 2 / h)
         sample.margin = float(min(lo[0] / w, lo[1] / h, 1 - hi[0] / w, 1 - hi[1] / h))
+        sample.points = points
         return sample
 
     def close(self) -> None:

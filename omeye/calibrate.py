@@ -10,6 +10,7 @@ from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
 from .model import fit_samples
 from .overlay_client import OverlayProcess
+from .camview import CameraFeed
 from .tracker import Camera, FaceTracker, framing_advice, list_cameras, pick_camera
 
 SETTLE = 0.9  # seconds for the eyes to land on a new dot
@@ -47,6 +48,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
                     intro: str = INTRO) -> None:
     seen: list = []  # recent samples, None where no face
     shown = None
+    feed = CameraFeed(ov, "center")
     last_frame = time.monotonic()
     brightness = 128.0
     while True:
@@ -55,6 +57,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
             last_frame = time.monotonic()
             brightness = float(frame[::16, ::16].mean())
             seen = (seen + [tracker.process(frame, last_frame)])[-15:]
+            feed.update(frame, seen[-1])
         found = [s for s in seen if s is not None]
         face = len(found) >= 10
         if time.monotonic() - last_frame > 2:
@@ -71,6 +74,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
             ov.send(cmd="text", text=f"{intro}\n\nCamera: {camera}\n{status}" + (f"\n\n{note}" if note else ""))
             shown = status
         if check_keys(ov) == "space" and face:
+            feed.hide()
             return
 
 
