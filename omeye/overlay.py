@@ -8,7 +8,9 @@ JSON lines on stdin and events leave as JSON lines on stdout.
   follow mode:    transparent and click-through; draws the gaze point
 
 Commands: {"cmd": "text", "text": ...}, {"cmd": "dot", "x", "y", "ms"} (no x
-to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "quit"}.
+to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "grid",
+"cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
+{"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
 
@@ -43,6 +45,7 @@ class Overlay(Gtk.ApplicationWindow):
         self.text = ""
         self.dot = None  # (x, y, start, seconds)
         self.gaze = None  # (x, y, on_target)
+        self.grid = None  # (cols, rows, fill per cell)
         self.add_css_class(f"omeye-{mode}")
 
         LayerShell.init_for_window(self)
@@ -89,6 +92,8 @@ class Overlay(Gtk.ApplicationWindow):
             self.text = msg.get("text", "")
         elif cmd == "dot":
             self.dot = (msg["x"], msg["y"], time.monotonic(), msg.get("ms", 1000) / 1000) if "x" in msg else None
+        elif cmd == "grid":
+            self.grid = (msg["cols"], msg["rows"], msg["fill"]) if "cols" in msg else None
         elif cmd == "gaze":
             self.gaze = (msg["x"], msg["y"], msg.get("on", False)) if "x" in msg else None
         elif cmd == "quit":
@@ -102,6 +107,17 @@ class Overlay(Gtk.ApplicationWindow):
             cr.set_source_rgba(0, 0, 0, 0)
             cr.paint()
             cr.set_operator(cairo.OPERATOR_OVER)
+        if self.grid:
+            cols, rows, fill = self.grid
+            cw, ch = width / cols, height / rows
+            cr.set_line_width(1)
+            for i, level in enumerate(fill):
+                row, col = divmod(i, cols)
+                cr.rectangle(col * cw + 3, row * ch + 3, cw - 6, ch - 6)
+                cr.set_source_rgba(0.3, 0.85, 0.5, 0.05 + 0.3 * level)
+                cr.fill_preserve()
+                cr.set_source_rgba(1, 1, 1, 0.08)
+                cr.stroke()
         if self.dot:
             x, y, start, seconds = self.dot
             k = min((time.monotonic() - start) / seconds, 1.0)

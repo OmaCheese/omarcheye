@@ -5,15 +5,15 @@ import time
 
 import numpy as np
 
-from .config import CALIBRATION_PATH, SAMPLES_PATH, Config
+from . import samples
+from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
-from .model import fit, inliers
+from .model import fit_samples
 from .overlay_client import OverlayProcess
 from .tracker import Camera, FaceTracker, framing_advice, list_cameras, pick_camera
 
 SETTLE = 0.9  # seconds for the eyes to land on a new dot
 COLLECT = 1.1  # seconds of frames kept per dot
-MIN_FRAMES = 8
 MIN_DOTS = 8
 POOR = 0.15  # cross-validated error above this share of the screen width: warn
 
@@ -34,7 +34,7 @@ def grid(n: int) -> list[tuple[float, float]]:
     return [(x, y) for y in np.linspace(0.07, 0.93, rows) for x in np.linspace(0.05, 0.95, cols)]
 
 
-def _check_keys(ov: OverlayProcess) -> str | None:
+def check_keys(ov: OverlayProcess) -> str | None:
     while ev := ov.poll():
         if ev.get("event") == "closed" or ev.get("key") == "Escape":
             raise Cancelled
@@ -43,7 +43,8 @@ def _check_keys(ov: OverlayProcess) -> str | None:
     return None
 
 
-def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera: str, note: str) -> None:
+def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera: str, note: str,
+                    intro: str = INTRO) -> None:
     seen: list = []  # recent samples, None where no face
     shown = None
     last_frame = time.monotonic()
@@ -67,9 +68,9 @@ def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camer
         else:
             status = "No face found: is the camera looking at you?"
         if status != shown:
-            ov.send(cmd="text", text=f"{INTRO}\n\nCamera: {camera}\n{status}" + (f"\n\n{note}" if note else ""))
+            ov.send(cmd="text", text=f"{intro}\n\nCamera: {camera}\n{status}" + (f"\n\n{note}" if note else ""))
             shown = status
-        if _check_keys(ov) == "space" and face:
+        if check_keys(ov) == "space" and face:
             return
 
 
@@ -79,7 +80,7 @@ def _collect(ov, cam, tracker, dots, width, height):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
         start = last_frame = time.monotonic()
         while (elapsed := time.monotonic() - start) < SETTLE + COLLECT:
-            _check_keys(ov)
+            check_keys(ov)
             frame = cam.read()
             if frame is None:
                 if time.monotonic() - last_frame > 3:
@@ -123,37 +124,32 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
     try:
         ready = ov.wait_for("ready", 8)
         width, height = ready["width"], ready["height"]
-        _wait_for_start(ov, cam, tracker, info.name, note)
+        wait_for_start(ov, cam, tracker, info.name, note)
         dots = grid(points or cfg.calibration_points)
         random.shuffle(dots)
         f, opens, groups, targets, framing = _collect(ov, cam, tracker, dots, width, height)
         ov.send(cmd="text", text="Fitting…")
-        SAMPLES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(SAMPLES_PATH, feats=f, opens=opens, groups=groups, targets=targets, framing=framing,
-                 dots=np.array(dots), size=np.array([width, height]))
+        data = {"feats": f, "opens": opens, "groups": groups, "targets": targets}
+        samples.save(info.name, mon.name, data, framing=framing, size=np.array([width, height]))
 
         advice = ""
         if len(framing):
             advice = framing_advice(tuple(np.median(framing[:, :2], 0)), float(np.median(framing[:, 2])))
         if len(f) == 0:
             raise RuntimeError("no usable face frames" + (f". {advice}" if advice else ""))
-        blink = 0.6 * float(np.median(opens))
-        keep = opens >= blink
-        keep[keep] = inliers(f[keep], groups[keep])
-        counts = np.bincount(groups[keep], minlength=len(dots))
-        keep &= counts[groups] >= MIN_FRAMES
-        n_dots = int((counts >= MIN_FRAMES).sum())
-        if n_dots < MIN_DOTS:
-            raise RuntimeError(f"only {n_dots} of {len(dots)} dots had a clear view of your eyes"
+        try:
+            model, used, n_frames = fit_samples(f, opens, groups, targets, height / width, mon.name, info.name)
+        except ValueError:
+            used, n_frames = [], 0
+        if len(used) < MIN_DOTS:
+            raise RuntimeError(f"only {len(used)} of {len(dots)} dots had a clear view of your eyes"
                                + (f". {advice}" if advice else ""))
-
-        model = fit(f[keep], targets[keep], groups[keep], height / width, mon.name, blink, info.name)
         model.save(CALIBRATION_PATH)
 
         err_px = model.error * width
         err_cm = f" ≈ {model.error * mm / 10:.1f} cm" if mm else ""
         summary = (f"Typical error {err_px:.0f} px{err_cm}, {100 * model.error:.0f}% of the screen width "
-                   f"({n_dots}/{len(dots)} dots, {keep.sum()} frames)")
+                   f"({len(used)}/{len(dots)} dots, {n_frames} frames)")
         if model.error > POOR:
             why = advice or "Check that the camera sees your eyes clearly, and look straight at each dot"
             title, summary = "Calibration is poor: eye focus will jump around", f"{summary}\n\n{why}"
@@ -162,7 +158,7 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         print(f"omeye: {title}. {summary}".replace("\n\n", ". ") + f"; saved {CALIBRATION_PATH}")
         ov.send(cmd="text", text=f"{title}\n\n{summary}\n\nPress any key")
         end = time.monotonic() + 6
-        while time.monotonic() < end and _check_keys(ov) is None:
+        while time.monotonic() < end and check_keys(ov) is None:
             time.sleep(0.05)
         return 0
     except Cancelled:

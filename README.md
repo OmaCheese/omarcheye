@@ -14,9 +14,10 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 
 1. **Features.** For each eye, where the iris sits between the corners (`u`, across) and between the lids (`v`, down), in eye widths, so head roll cancels out. Both eyes are averaged. Head yaw, pitch and position relative to the camera come from MediaPipe's face transformation matrix.
 2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect.
-3. **Smoothing.** A One Euro filter smooths the gaze point a lot while it holds still and very little when it jumps. Blink frames (eyelids below 60% of your usual opening) are skipped.
-4. **Picking a window.** Gaze has to be 50 pixels inside a window's edge before that window counts, and the focused window extends 50 pixels past its own edges. That hysteresis stops jitter along a border from flipping focus.
-5. **Switching.** The same window must stay under your gaze for 0.4 s; glances away of up to 0.15 s (blinks) don't restart the count. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves. The mouse always wins.
+3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
+4. **Smoothing.** A One Euro filter smooths the gaze point a lot while it holds still and very little when it jumps. Blink frames (eyelids below 60% of your usual opening) are skipped.
+5. **Picking a window.** Gaze has to be 50 pixels inside a window's edge before that window counts, and the focused window extends 50 pixels past its own edges. That hysteresis stops jitter along a border from flipping focus.
+6. **Switching.** The same window must stay under your gaze for 0.4 s; glances away of up to 0.15 s (blinks) don't restart the count. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves. The mouse always wins.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
@@ -36,8 +37,9 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 
    `install.sh` creates the Python environment (`uv sync`), downloads the face landmark model to `~/.local/share/omeye/models/`, builds the input-activity helper (`make`), links `omeye` into `~/.local/bin` and installs the `omeye.service` systemd user unit. The unit is not started at login.
 3. Calibrate: `omeye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
-4. Check: `omeye preview` draws a ring where omeye thinks you are looking (green when it is on the focused window) without changing focus. `omeye preview --switch` changes focus too.
-5. Use: `omeye on`, `omeye off`, `omeye toggle`.
+4. Optional, and worth it: `omeye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
+5. Check: `omeye preview` draws a ring where omeye thinks you are looking (green when it is on the focused window) without changing focus. `omeye preview --switch` changes focus too.
+6. Use: `omeye on`, `omeye off`, `omeye toggle`.
 
 ## Commands
 
@@ -45,13 +47,14 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 |---|---|
 | `omeye on` / `off` / `toggle` | Start or stop the service, with a desktop notification |
 | `omeye status` | Service state, calibration age and error, chosen camera |
-| `omeye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots) |
+| `omeye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots); starts the samples afresh |
+| `omeye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
 | `omeye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
 | `omeye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
 | `omeye cameras` | List cameras and mark the one in use |
 | `omeye bench [--seconds S]` | Landmark speed and processor load |
 
-`calibrate`, `preview` and `bench` pause the service while they use the camera, then start it again.
+`calibrate`, `refine`, `preview` and `bench` pause the service while they use the camera, then start it again.
 
 The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
@@ -96,6 +99,8 @@ omeye/            Python package
   calibrate.py    dot calibration
   tracker.py      camera, MediaPipe, gaze features
   model.py        calibrated regression
+  refine.py       pointer-following refinement
+  samples.py      stored calibration samples
   focus.py        window hit test and dwell logic
   filters.py      One Euro filter
   activity.py     typing and mouse activity
@@ -108,6 +113,6 @@ tests/            pytest: uv run pytest
 
 ## Ideas for later
 
-- Learn from clicks: when you click, you are almost always looking at the pointer, so each click is a free calibration sample.
+- Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omeye refine` does this on purpose).
 - A bar indicator and toggle as an Omarchy plugin, next to `rb.monitor` and `rb.overview` in `omarchy-rb-plugins`.
 - Gaze across several monitors (calibration currently covers the one the camera sits on).

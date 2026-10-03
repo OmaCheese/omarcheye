@@ -107,6 +107,13 @@ def cmd_calibrate(cfg, args) -> int:
         return run(cfg, args.monitor, args.points)
 
 
+def cmd_refine(cfg, args) -> int:
+    from .refine import run
+
+    with camera_free():
+        return run(cfg, args.seconds)
+
+
 def cmd_cameras(cfg, args) -> int:
     from .tracker import list_cameras, pick_camera
 
@@ -166,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("calibrate", help="follow dots on screen to calibrate")
     p.add_argument("--monitor", default="", help="monitor the camera sits on (default: focused)")
     p.add_argument("--points", type=int, default=0, help="number of dots (9, 12, 15, 20 or 24)")
+    p = sub.add_parser("refine", help="follow the mouse pointer with your eyes to improve the calibration")
+    p.add_argument("--seconds", type=float, default=60, help="stop after this long (default 60)")
     p = sub.add_parser("preview", help="show where omeye thinks you look")
     p.add_argument("--switch", action="store_true", help="also switch focus")
     p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")

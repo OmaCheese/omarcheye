@@ -58,7 +58,7 @@ class GazeModel:
     intercept: np.ndarray  # (2,)
     lam: float
     blink: float  # openness below this = eyes closed, frame ignored
-    error: float  # leave-one-dot-out mean error, in monitor widths
+    error: float  # cross-validated mean error (leave one dot or cell out), in monitor widths
     camera: str = ""
     created: str = ""
 
@@ -66,6 +66,13 @@ class GazeModel:
         z = (expand(feat)[0] - self.mean) / self.std
         x, y = z @ self.coef + self.intercept
         return float(x), float(y)
+
+    def group_error(self, f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float) -> float:
+        """Mean distance from prediction to target, averaged per group, in monitor widths."""
+        z = (expand(f) - self.mean) / self.std
+        d = z @ self.coef + self.intercept - targets
+        e = np.hypot(d[:, 0], d[:, 1] * aspect)
+        return float(np.mean([e[groups == g].mean() for g in np.unique(groups)]))
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,26 +90,50 @@ class GazeModel:
         return cls(**data)
 
 
+MIN_FRAMES = 8  # a dot or cell with fewer usable frames is left out
+MOUSE = 1000  # group ids from here up are pointer cells (omeye refine); below are dots
+
+
 def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
-        monitor: str, blink: float, camera: str = "") -> GazeModel:
-    """f: (n, features) frames; targets: (n, 2) monitor fractions of the dot
-    each frame was looking at; groups: dot index per frame; aspect: height/width."""
+        monitor: str, blink: float, camera: str = "", score: set[int] | None = None) -> GazeModel:
+    """f: (n, features) frames; targets: (n, 2) monitor fractions of where
+    each frame was looking; groups: dot or cell per frame; aspect: height/width.
+    The reported error is the cross-validated error over the `score` groups
+    (default: all of them)."""
     x = expand(f)
     mean, std = x.mean(0), x.std(0)
     std[std < 1e-9] = 1.0
     z = (x - mean) / std
 
-    def cv_error(lam: float) -> float:
-        errs = []
+    def cv_errors(lam: float) -> dict[int, float]:
+        errs = {}
         for g in np.unique(groups):
             test = groups == g
             coef, b = _solve(z[~test], targets[~test], lam)
             d = z[test] @ coef + b - targets[test]
-            errs.append(np.hypot(d[:, 0], d[:, 1] * aspect).mean())
-        return float(np.mean(errs))
+            errs[int(g)] = float(np.hypot(d[:, 0], d[:, 1] * aspect).mean())
+        return errs
 
-    errors = {lam: cv_error(lam) for lam in LAMBDAS}
-    lam = min(errors, key=errors.get)
+    per_lam = {lam: cv_errors(lam) for lam in LAMBDAS}
+    lam = min(per_lam, key=lambda k: np.mean(list(per_lam[k].values())))
+    scored = [e for g, e in per_lam[lam].items() if score is None or g in score]
+    error = float(np.mean(scored or list(per_lam[lam].values())))
     coef, b = _solve(z, targets, lam)
-    return GazeModel(monitor, mean, std, coef, b, lam, blink, errors[lam], camera,
-                     time.strftime("%Y-%m-%dT%H:%M:%S"))
+    return GazeModel(monitor, mean, std, coef, b, lam, blink, error, camera, time.strftime("%Y-%m-%dT%H:%M:%S"))
+
+
+def fit_samples(feats: np.ndarray, opens: np.ndarray, groups: np.ndarray, targets: np.ndarray,
+                aspect: float, monitor: str, camera: str, score: set[int] | None = None):
+    """Drop blinks and stray frames, then fit. Returns (model, groups used, frames used)."""
+    blink = 0.6 * float(np.median(opens))
+    keep = opens >= blink
+    dots = keep & (groups < MOUSE)
+    keep[dots] = inliers(feats[dots], groups[dots])
+    counts = {int(g): int((keep & (groups == g)).sum()) for g in np.unique(groups)}
+    keep &= np.array([counts[int(g)] >= MIN_FRAMES for g in groups], bool)
+    used = sorted(g for g, c in counts.items() if c >= MIN_FRAMES)
+    if not used:
+        raise ValueError("no dot or cell had enough clear frames")
+    model = fit(feats[keep], targets[keep], groups[keep], aspect, monitor, blink, camera,
+                None if score is None else score & set(used))
+    return model, used, int(keep.sum())
