@@ -35,8 +35,9 @@ def compare(errors: dict[str, float], kind: str) -> str:
     if len(errors) < 2:
         return ""
     names = {"basic": "basic features", "rich": "rich features", "geometric": "geometric model"}
+    why = " (it holds up better when you sit differently)" if errors[kind] > min(errors.values()) else ""
     return ", ".join(f"{names.get(k, k)} {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) \
-        + f": using {names.get(kind, kind)}"
+        + f": using {names.get(kind, kind)}{why}"
 
 
 def grid(n: int) -> list[tuple[float, float]]:

@@ -2,7 +2,7 @@
 
 Look at a window and it gets focus. omeye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omeye toggle` (or a key bound to it).
 
-Status: version 0.5. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). Settings are tuned by replaying the saved calibration frames, not yet by live use.
+Status: version 0.6. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). Settings are tuned by replaying the saved calibration frames, not yet by live use.
 
 ## How it works
 
@@ -14,7 +14,7 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 ```
 
 1. **Features.** Two sets are recorded, and calibration keeps whichever predicts better on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
-2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below), and keeps whichever of the three (basic regression, rich regression, geometric) has the lowest cross-validated error.
+2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below). It uses the geometric model unless its cross-validated error is more than 30% worse than the best regression's; otherwise the regression with the lowest error. Cross-validation within one sitting flatters the regressions, because they lean on how your head happened to sit. Each regression scales head features by at least a minimum spread (2° for angles, 2 cm for distance), and clamps live features to the calibration's range widened by two spreads, so sitting differently later can't throw predictions off the screen.
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
@@ -90,6 +90,19 @@ The regressions learn how features map to the screen within the postures seen du
 - **Where you look:** where the ray meets the screen plane.
 
 Calibration fits those ten numbers (Levenberg-Marquardt, weak priors for the directions the dots can't separate, mirrored image tried both ways). Moving your head is then handled by geometry rather than extrapolation. On a simulated desk (calibrate at 65 cm, then move), the regression went from 2.2% to 5.4–5.7% of the screen width when sitting 9 cm closer or moving in several directions, while the geometric model stayed at 1.1–1.2%. That assumes the eye model holds for real eyes, which `omeye test` checks on yours.
+
+### When you sit differently
+
+A calibration at 23:43 held the head almost still: MediaPipe's distance stayed within 47.1–48.0 cm. Its basic regression scaled distance by that tiny spread, so in a later sitting (53.5 cm away, a test recorded with `omeye test`) every prediction landed off the screen. Error, share of the screen width:
+
+| Fitted on that calibration | Same sitting (cross-validated) | Other sitting (`omeye test`) |
+|---|---|---|
+| Basic regression, as it was | 7.7% | 76.7% |
+| Basic, minimum spreads and clamping | 9.4% | 36.6% |
+| Rich, minimum spreads and clamping | 9.7% | 19.7% |
+| Geometric model | 8.3% | 19.1% |
+
+The preview now says so when most gaze estimates fall off the screen, and the service log counts them.
 
 ## Processor load
 

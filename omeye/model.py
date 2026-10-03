@@ -20,6 +20,21 @@ from .tracker import FEATURES, RICH, Sample
 
 KINDS = {"basic": FEATURES, "rich": RICH}
 
+# Smallest spread a head feature is scaled by (yaw, pitch in radians; hx, hy
+# per unit distance; hz in MediaPipe's cm). Calibration often holds the head
+# almost still; scaling by that tiny spread would let a few centimetres of
+# leaning later count as a huge change and throw predictions off the screen.
+HEAD_FLOOR = np.array([0.035, 0.035, 0.02, 0.02, 2.0])
+CLAMP = 2.0  # live features are clamped to the calibration's range, widened by this many spreads
+GEOMETRIC_MARGIN = 1.3  # prefer the geometric model unless its error is 30% worse than the best regression's
+
+
+def floors(kind: str) -> np.ndarray:
+    """Minimum spread per raw feature of a kind (0: no minimum)."""
+    f = np.zeros(len(KINDS[kind]))
+    f[-len(HEAD_FLOOR):] = HEAD_FLOOR
+    return f
+
 LAMBDAS = (1e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.3, 1.0)
 
 
@@ -74,10 +89,17 @@ class GazeModel:
     camera: str = ""
     created: str = ""
     kind: str = "basic"  # which feature set: see KINDS
+    lo: np.ndarray | None = None  # live features are clamped to [lo, hi]
+    hi: np.ndarray | None = None
+
+    def _z(self, f: np.ndarray) -> np.ndarray:
+        f = np.atleast_2d(f)
+        if self.lo is not None:
+            f = np.clip(f, self.lo, self.hi)
+        return (expand(f, self.kind) - self.mean) / self.std
 
     def predict(self, feat: np.ndarray) -> tuple[float, float]:
-        z = (expand(feat, self.kind)[0] - self.mean) / self.std
-        x, y = z @ self.coef + self.intercept
+        x, y = self._z(feat)[0] @ self.coef + self.intercept
         return float(x), float(y)
 
     def predict_sample(self, s: Sample) -> tuple[float, float]:
@@ -85,16 +107,14 @@ class GazeModel:
 
     def predict_data(self, data: dict) -> np.ndarray:
         """(n, 2) predictions in monitor fractions for a sample set."""
-        z = (expand(vectors(data, self.kind), self.kind) - self.mean) / self.std
-        return z @ self.coef + self.intercept
+        return self._z(vectors(data, self.kind)) @ self.coef + self.intercept
 
     def describe(self) -> str:
         return f"{self.kind} features"
 
     def group_error(self, f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float) -> float:
         """Mean distance from prediction to target, averaged per group, in monitor widths."""
-        z = (expand(f, self.kind) - self.mean) / self.std
-        d = z @ self.coef + self.intercept - targets
+        d = self._z(f) @ self.coef + self.intercept - targets
         e = np.hypot(d[:, 0], d[:, 1] * aspect)
         return float(np.mean([e[groups == g].mean() for g in np.unique(groups)]))
 
@@ -109,8 +129,9 @@ class GazeModel:
         data = json.loads(path.read_text())
         if data.pop("features", None) != list(KINDS.get(data.get("kind", "basic"), ())):
             raise ValueError(f"{path} was made by another omeye version; run `omeye calibrate` again")
-        for k in ("mean", "std", "coef", "intercept"):
-            data[k] = np.array(data[k])
+        for k in ("mean", "std", "coef", "intercept", "lo", "hi"):
+            if data.get(k) is not None:
+                data[k] = np.array(data[k])
         return cls(**data)
 
 
@@ -127,8 +148,12 @@ def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
     (default: all of them)."""
     x = expand(f, kind)
     mean, std = x.mean(0), x.std(0)
+    raw_floor = floors(kind)
+    std[: len(raw_floor)] = np.maximum(std[: len(raw_floor)], raw_floor)
     std[std < 1e-9] = 1.0
     z = (x - mean) / std
+    pad = CLAMP * np.maximum(f.std(0), raw_floor)
+    lo, hi = f.min(0) - pad, f.max(0) + pad
 
     def cv_errors(lam: float) -> dict[int, float]:
         errs = {}
@@ -145,7 +170,7 @@ def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
     error = float(np.mean(scored or list(per_lam[lam].values())))
     coef, b = _solve(z, targets, lam)
     return GazeModel(monitor, mean, std, coef, b, lam, blink, error, camera,
-                     time.strftime("%Y-%m-%dT%H:%M:%S"), kind)
+                     time.strftime("%Y-%m-%dT%H:%M:%S"), kind, lo, hi)
 
 
 def load_model(path: Path):
@@ -168,7 +193,7 @@ def data_error(model, data: dict, aspect: float) -> float:
 
 
 def subset(data: dict, mask: np.ndarray) -> dict:
-    return {k: v[mask] for k, v in data.items() if isinstance(v, np.ndarray) and len(v) == len(mask)}
+    return {k: v[mask] for k, v in data.items() if isinstance(v, np.ndarray) and v.ndim and len(v) == len(mask)}
 
 
 def prepare(data: dict) -> tuple[np.ndarray, list[int], float]:
@@ -204,9 +229,21 @@ def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int
     return models, used, int(keep.sum())
 
 
+def choose(models: list):
+    """The model to use: the lowest cross-validated error, except that the
+    geometric model wins unless it is GEOMETRIC_MARGIN worse. Cross-validation
+    within one sitting flatters the regressions (they lean on how the head
+    happened to sit); in a later sitting the geometric model held up best."""
+    best = min(models, key=lambda m: m.error)
+    geo = next((m for m in models if m.kind == "geometric"), None)
+    if geo is not None and geo.error <= GEOMETRIC_MARGIN * best.error:
+        return geo
+    return best
+
+
 def fit_samples(data: dict, aspect: float, monitor: str, camera: str, score: set[int] | None = None,
                 screen_mm: tuple[float, float] | None = None):
-    """Fit every model there is data for and keep the one with the lowest
-    cross-validated error. Returns (model, groups used, frames used, {kind: error})."""
+    """Fit every model there is data for and choose one (see choose()).
+    Returns (model, groups used, frames used, {kind: error})."""
     models, used, frames = fit_all(data, aspect, monitor, camera, score, screen_mm)
-    return min(models, key=lambda m: m.error), used, frames, {m.kind: m.error for m in models}
+    return choose(models), used, frames, {m.kind: m.error for m in models}

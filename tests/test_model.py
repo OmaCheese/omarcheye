@@ -72,3 +72,27 @@ def test_rich_model_round_trip(tmp_path):
     model.save(tmp_path / "cal.json")
     again = GazeModel.load(tmp_path / "cal.json")
     assert again.kind == "rich" and again.predict(rich[3]) == model.predict(rich[3])
+
+
+def test_a_head_held_still_during_calibration_does_not_throw_predictions_off():
+    """Calibrated with the distance nearly constant; later 5 cm closer."""
+    f, t, g = synthetic()
+    rng = np.random.default_rng(7)
+    f[:, 6] = 47.5 + rng.normal(0, 0.25, len(f))  # hz barely moves
+    f[:, 0] += 0.002 * (f[:, 6] - 47.5)  # and happens to correlate a little with u
+    model = fit(f, t, g, 9 / 16, "TEST-1", 0.1)
+    later = f[:50].copy()
+    later[:, 6] -= 5.0
+    p = np.array([model.predict(x) for x in later])
+    assert np.all(np.abs(p - t[:50]) < 0.25)  # still on the screen, near the dots
+
+
+def test_choose_prefers_geometry_within_the_margin():
+    from types import SimpleNamespace
+
+    from omeye.model import choose
+
+    basic, geo = SimpleNamespace(kind="basic", error=0.077), SimpleNamespace(kind="geometric", error=0.083)
+    assert choose([basic, geo]) is geo
+    geo.error = 0.12
+    assert choose([basic, geo]) is basic

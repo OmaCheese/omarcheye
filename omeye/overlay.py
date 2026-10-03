@@ -19,6 +19,7 @@ Coordinates are logical pixels from the monitor's top-left corner.
 import argparse
 import base64
 import json
+import signal
 import sys
 import threading
 import time
@@ -240,6 +241,9 @@ def main() -> None:
     ap.add_argument("--mode", choices=("calibrate", "follow"), default="calibrate")
     args = ap.parse_args()
 
+    # Ctrl+C in the terminal reaches this process too; omeye closes the
+    # overlay itself (stdin ends), so ignore it instead of dying with a traceback.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     if not LayerShell.is_supported():
         print("omeye overlay: layer shell unsupported (is LD_PRELOAD set?)", file=sys.stderr)
         sys.exit(1)

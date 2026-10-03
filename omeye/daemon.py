@@ -1,6 +1,7 @@
 """The tracking loop: camera frame -> gaze point -> window -> focus."""
 
 import signal
+from collections import deque
 import sys
 import threading
 import time
@@ -40,8 +41,11 @@ class LayoutPoller:
                 log(f"layout: {e}")
 
 
+OFF_SCREEN_HINT = "Most gaze estimates fall off the screen: sit as when you calibrated, or run omeye calibrate"
+
+
 def new_stats() -> dict:
-    return {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0, "held_typing": 0, "held_mouse": 0}
+    return {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0, "held_typing": 0, "held_mouse": 0, "off_screen": 0}
 
 
 def open_camera(cfg: Config, model: GazeModel, stop: threading.Event) -> Camera | None:
@@ -94,6 +98,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     cam = open_camera(cfg, model, stop)
     last_face = last_frame = time.monotonic()
     frame_no = 0
+    recent_off: deque = deque(maxlen=90)  # face found but gaze off the screen, last ~3 s
     stats = new_stats()
     stats_since = time.monotonic()
     try:
@@ -140,6 +145,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     smooth.reset()
                 last_face = now
                 point = on_screen(model.predict_sample(sample), cfg.offscreen) if mon else None
+                recent_off.append(point is None)
+                stats["off_screen"] += point is None
                 if point:
                     chances = window_chances(layout.windows, *mon.to_global(*point), sigma * mon.w)
                     aspect = mon.h / mon.w
@@ -188,6 +195,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     overlay.send(cmd="gaze")
                     overlay.send(cmd="rect")
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
+                if not advice and len(recent_off) > 30 and sum(recent_off) > 0.8 * len(recent_off):
+                    advice = OFF_SCREEN_HINT
                 overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))
 
@@ -196,7 +205,9 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 fps = n / (now - stats_since)
                 log(f"{fps:.1f} fps, {1000 * stats['busy'] / n:.1f} ms/frame, face {100 * stats['faces'] / n:.0f}%, "
                     f"{stats['switches']} switches; a ready switch was held {stats['held_typing'] / fps:.1f} s "
-                    f"by typing, {stats['held_mouse'] / fps:.1f} s by the mouse")
+                    f"by typing, {stats['held_mouse'] / fps:.1f} s by the mouse"
+                    + (f"; gaze off the screen in {100 * stats['off_screen'] / max(stats['faces'], 1):.0f}% of face frames"
+                       if stats["off_screen"] else ""))
                 stats = new_stats()
                 stats_since = now
         return 0
