@@ -61,7 +61,7 @@ def test_collect_fills_cells_and_fits(monkeypatch):
         def process(self, frame, t):
             feat = eyes(*path(t), rng)
             rich = np.concatenate([[feat[0], feat[1], feat[0], feat[1]], np.zeros(12), feat[2:]])
-            return Sample(t, feat, 0.25, rich=rich)
+            return Sample(t, feat, 0.25, rich=rich, pose=np.eye(4).ravel())
 
     class Hypr:
         def cursor(self):
@@ -80,9 +80,8 @@ def test_collect_fills_cells_and_fits(monkeypatch):
     assert clock.t < 40  # stopped once every cell was covered, not at the time limit
 
     assert data["rich"].shape == (len(data["groups"]), len(RICH))
-    model, used, frames, errors = fit_samples(data["feats"], data["opens"], data["groups"], data["targets"],
-                                              9 / 16, "TEST-1", "cam", score={MOUSE + c for c in cells},
-                                              rich=data["rich"])
+    assert data["pose"].shape == (len(data["groups"]), 16)
+    model, used, frames, errors = fit_samples(data, 9 / 16, "TEST-1", "cam", score={MOUSE + c for c in cells})
     assert set(errors) == {"basic", "rich"} and model.error == min(errors.values())
     assert model.error < 0.05
     assert len(used) == len(cells)
@@ -90,8 +89,8 @@ def test_collect_fills_cells_and_fits(monkeypatch):
 
 def test_samples_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(samples, "SAMPLES_PATH", tmp_path / "s.npz")
-    a = {"feats": np.ones((3, 7)), "rich": np.ones((3, len(RICH))), "opens": np.ones(3), "groups": np.arange(3),
-         "targets": np.zeros((3, 2))}
+    a = {"feats": np.ones((3, 7)), "rich": np.ones((3, len(RICH))), "pose": np.ones((3, 16)), "opens": np.ones(3),
+         "groups": np.arange(3), "targets": np.zeros((3, 2))}
     samples.save("cam", "MON", a)
     back = samples.load("cam", "MON")
     assert back is not None and np.array_equal(back["groups"], a["groups"])

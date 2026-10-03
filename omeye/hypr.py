@@ -120,6 +120,14 @@ class Hypr:
         active = self.json("activewindow")
         return parse_layout(self.json("monitors"), self.json("clients"), active if isinstance(active, dict) else None)
 
+    def physical_mm(self, name: str) -> tuple[float, float] | None:
+        """The monitor's picture size in millimetres as it reports it (EDID), or None."""
+        for m in self.json("monitors"):
+            if m["name"] == name and m.get("physicalWidth") and m.get("physicalHeight"):
+                w, h = float(m["physicalWidth"]), float(m["physicalHeight"])
+                return (h, w) if m.get("transform", 0) % 2 else (w, h)
+        return None
+
     def cursor(self) -> tuple[float, float]:
         p = self.json("cursorpos")
         return p["x"], p["y"]

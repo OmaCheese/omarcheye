@@ -2,7 +2,7 @@
 
 Look at a window and it gets focus. omeye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omeye toggle` (or a key bound to it).
 
-Status: version 0.4. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). Settings are tuned by replaying the saved calibration frames, not yet by live use.
+Status: version 0.5. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). Settings are tuned by replaying the saved calibration frames, not yet by live use.
 
 ## How it works
 
@@ -14,7 +14,7 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 ```
 
 1. **Features.** Two sets are recorded, and calibration keeps whichever predicts better on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
-2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation, chooses between the basic and the rich feature set, and reports the error you can expect.
+2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below), and keeps whichever of the three (basic regression, rich regression, geometric) has the lowest cross-validated error.
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
@@ -49,6 +49,7 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 | `omeye on` / `off` / `toggle` | Start or stop the service, with a desktop notification |
 | `omeye status` | Service state, calibration age and error, chosen camera |
 | `omeye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots); starts the samples afresh |
+| `omeye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each kind of model fitted on your samples does; Enter switches to a clearly better one |
 | `omeye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
 | `omeye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
 | `omeye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
@@ -76,6 +77,18 @@ typing_grace_ms = 700    # no switching until this long after the last key
 mouse_grace_ms = 2000    # the mouse wins for this long after it moves
 offscreen = 0.15         # further outside the monitor than this counts as looking away
 ```
+
+## Geometric model
+
+The regressions learn how features map to the screen within the postures seen during calibration, and extrapolate when you sit differently. The geometric model (`geometry.py`) follows the physical setup instead, in millimetres and in the camera's coordinates:
+
+- **Screen:** a rectangle of the size the monitor reports (700 × 390 mm here).
+- **Camera:** `dx` mm right of the screen's centre, `lift` mm above its top edge, tilted by `tilt` and `pan`.
+- **Your eye:** where MediaPipe puts your head, times a scale `s`. MediaPipe assumes a 63° lens; a phone's differs, which scales every distance it reports. On this setup it put the face at 47 cm.
+- **Your gaze:** a ray along the head's forward axis, turned by the eye's own rotation: `kx·u + ox` across and `ky·v + kl·lid + oy` up.
+- **Where you look:** where the ray meets the screen plane.
+
+Calibration fits those ten numbers (Levenberg-Marquardt, weak priors for the directions the dots can't separate, mirrored image tried both ways). Moving your head is then handled by geometry rather than extrapolation. On a simulated desk (calibrate at 65 cm, then move), the regression went from 2.2% to 5.4–5.7% of the screen width when sitting 9 cm closer or moving in several directions, while the geometric model stayed at 1.1–1.2%. That assumes the eye model holds for real eyes, which `omeye test` checks on yours.
 
 ## Processor load
 
@@ -136,7 +149,9 @@ omeye/            Python package
   calibrate.py    dot calibration
   camview.py      camera view for the overlay
   tracker.py      camera, MediaPipe, gaze features
-  model.py        calibrated regression
+  model.py        calibrated regressions, choosing a model
+  geometry.py     geometric model: screen, camera, eyes in millimetres
+  validate.py     omeye test
   refine.py       pointer-following refinement
   samples.py      stored calibration samples
   focus.py        chance of each window, belief, when to switch

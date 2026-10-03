@@ -10,7 +10,7 @@ from .config import CALIBRATION_PATH, Config
 from .filters import OneEuro2D
 from .focus import AWAY, Belief, BeliefParams, on_screen, window_chances
 from .hypr import Hypr, HyprError
-from .model import GazeModel
+from .model import GazeModel, load_model
 from .overlay_client import OverlayProcess
 from .camview import CameraFeed
 from .tracker import Camera, FaceTracker, framing_advice, pick_camera
@@ -67,7 +67,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     if not CALIBRATION_PATH.exists():
         log("not calibrated yet; run `omeye calibrate`")
         return 1
-    model = GazeModel.load(CALIBRATION_PATH)
+    model = load_model(CALIBRATION_PATH)
     hypr = Hypr()
     poller = LayoutPoller(hypr)
     mon = poller.layout.monitor(model.monitor)

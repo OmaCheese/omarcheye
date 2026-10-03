@@ -52,6 +52,7 @@ class Sample:
     margin: float = 1.0  # nearest landmark to the image border, as a fraction of the image
     points: np.ndarray | None = None  # all landmarks in image pixels, for the camera view
     rich: np.ndarray | None = None  # ordered as RICH
+    pose: np.ndarray | None = None  # MediaPipe's face transformation matrix, flattened (16): rotation, position in cm
 
     @property
     def cut_off(self) -> bool:
@@ -114,7 +115,7 @@ def features(points: np.ndarray, matrix, t: float, blend: dict[str, float] | Non
     rich = None
     if blend is not None:
         rich = np.array([ua, va, ub, vb, upa, loa, upb, lob, *(blend.get(n, 0.0) for n in BLEND), *head])
-    return Sample(t, feat, (loa - upa + lob - upb) / 2, rich=rich)
+    return Sample(t, feat, (loa - upa + lob - upb) / 2, rich=rich, pose=np.asarray(matrix, float).ravel())
 
 
 def _import_mediapipe():

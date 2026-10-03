@@ -73,7 +73,7 @@ def cmd_status(cfg, args) -> int:
     print(f"service:     {'on' if service_active() else 'off'}")
     if CALIBRATION_PATH.exists():
         c = json.loads(CALIBRATION_PATH.read_text())
-        print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, "
+        print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, {c.get('kind', 'basic')} model, "
               f"error {100 * c['error']:.1f}% of screen width")
     else:
         print("calibration: none (run `omeye calibrate`)")
@@ -112,6 +112,13 @@ def cmd_refine(cfg, args) -> int:
 
     with camera_free():
         return run(cfg, args.seconds)
+
+
+def cmd_test(cfg, args) -> int:
+    from .validate import run
+
+    with camera_free():
+        return run(cfg)
 
 
 def cmd_camera(cfg, args) -> int:
@@ -203,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--points", type=int, default=0, help="number of dots (9, 12, 15, 20 or 24)")
     p = sub.add_parser("refine", help="follow the mouse pointer with your eyes to improve the calibration")
     p.add_argument("--seconds", type=float, default=60, help="stop after this long (default 60)")
+    sub.add_parser("test", help="look at 9 dots: how good the calibration is now, and which model does best")
     p = sub.add_parser("preview", help="show where omeye thinks you look")
     p.add_argument("--switch", action="store_true", help="also switch focus")
     p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")

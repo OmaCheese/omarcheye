@@ -83,6 +83,14 @@ class GazeModel:
     def predict_sample(self, s: Sample) -> tuple[float, float]:
         return self.predict(s.rich if self.kind == "rich" else s.feat)
 
+    def predict_data(self, data: dict) -> np.ndarray:
+        """(n, 2) predictions in monitor fractions for a sample set."""
+        z = (expand(vectors(data, self.kind), self.kind) - self.mean) / self.std
+        return z @ self.coef + self.intercept
+
+    def describe(self) -> str:
+        return f"{self.kind} features"
+
     def group_error(self, f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float) -> float:
         """Mean distance from prediction to target, averaged per group, in monitor widths."""
         z = (expand(f, self.kind) - self.mean) / self.std
@@ -140,24 +148,65 @@ def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
                      time.strftime("%Y-%m-%dT%H:%M:%S"), kind)
 
 
-def fit_samples(feats: np.ndarray, opens: np.ndarray, groups: np.ndarray, targets: np.ndarray,
-                aspect: float, monitor: str, camera: str, score: set[int] | None = None,
-                rich: np.ndarray | None = None):
-    """Drop blinks and stray frames, then fit each feature set there is data
-    for and keep the best. Returns (model, groups used, frames used,
-    {kind: cross-validated error})."""
+def load_model(path: Path):
+    """A saved calibration, whichever kind it is."""
+    if json.loads(path.read_text()).get("kind") == "geometric":
+        from .geometry import GeoModel
+
+        return GeoModel.load(path)
+    return GazeModel.load(path)
+
+
+def data_error(model, data: dict, aspect: float) -> float:
+    """A model's mean error on a sample set (per dot or cell, then averaged),
+    in monitor widths; points it can't place count as a full width."""
+    d = model.predict_data(data) - data["targets"]
+    e = np.hypot(d[:, 0], d[:, 1] * aspect)
+    e = np.where(np.isfinite(e), e, 1.0)
+    g = data["groups"]
+    return float(np.mean([e[g == k].mean() for k in np.unique(g)]))
+
+
+def subset(data: dict, mask: np.ndarray) -> dict:
+    return {k: v[mask] for k, v in data.items() if isinstance(v, np.ndarray) and len(v) == len(mask)}
+
+
+def prepare(data: dict) -> tuple[np.ndarray, list[int], float]:
+    """Which frames to fit on: no blinks, no stray frames within a dot, and
+    only dots or cells with enough frames left. Returns (keep, groups used, blink)."""
+    feats, opens, groups = data["feats"], data["opens"], data["groups"]
     blink = 0.6 * float(np.median(opens))
     keep = opens >= blink
     dots = keep & (groups < MOUSE)
     keep[dots] = inliers(feats[dots], groups[dots])
     counts = {int(g): int((keep & (groups == g)).sum()) for g in np.unique(groups)}
     keep &= np.array([counts[int(g)] >= MIN_FRAMES for g in groups], bool)
-    used = sorted(g for g, c in counts.items() if c >= MIN_FRAMES)
+    return keep, sorted(g for g, c in counts.items() if c >= MIN_FRAMES), blink
+
+
+def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int] | None = None,
+            screen_mm: tuple[float, float] | None = None) -> tuple[list, list[int], int]:
+    """Every model there is data for: the basic and rich regressions, and the
+    geometric model when head poses and the screen's size are known.
+    Returns (models, groups used, frames used)."""
+    keep, used, blink = prepare(data)
     if not used:
         raise ValueError("no dot or cell had enough clear frames")
     scored = None if score is None else score & set(used)
-    models = [fit(feats[keep], targets[keep], groups[keep], aspect, monitor, blink, camera, scored)]
-    if rich is not None and len(rich) == len(feats):
-        models.append(fit(rich[keep], targets[keep], groups[keep], aspect, monitor, blink, camera, scored, "rich"))
-    best = min(models, key=lambda m: m.error)
-    return best, used, int(keep.sum()), {m.kind: m.error for m in models}
+    d = subset(data, keep)
+    models = [fit(d["feats"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored)]
+    if "rich" in d and len(d["rich"]):
+        models.append(fit(d["rich"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored, "rich"))
+        if screen_mm and "pose" in d and len(d["pose"]):
+            from . import geometry
+
+            models.append(geometry.fit(d, d["groups"], screen_mm, monitor, blink, camera, scored))
+    return models, used, int(keep.sum())
+
+
+def fit_samples(data: dict, aspect: float, monitor: str, camera: str, score: set[int] | None = None,
+                screen_mm: tuple[float, float] | None = None):
+    """Fit every model there is data for and keep the one with the lowest
+    cross-validated error. Returns (model, groups used, frames used, {kind: error})."""
+    models, used, frames = fit_all(data, aspect, monitor, camera, score, screen_mm)
+    return min(models, key=lambda m: m.error), used, frames, {m.kind: m.error for m in models}

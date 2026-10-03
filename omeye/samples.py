@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import SAMPLES_PATH
 
-KEYS = ("feats", "rich", "opens", "groups", "targets")
+KEYS = ("feats", "rich", "pose", "opens", "groups", "targets")
 
 
 def load(camera: str, monitor: str) -> dict | None:

@@ -34,7 +34,9 @@ def compare(errors: dict[str, float], kind: str) -> str:
     """One line on which feature set won, e.g. "rich features 5.1%, basic 6.6%: using rich"."""
     if len(errors) < 2:
         return ""
-    return ", ".join(f"{k} features {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) + f": using {kind}"
+    names = {"basic": "basic features", "rich": "rich features", "geometric": "geometric model"}
+    return ", ".join(f"{names.get(k, k)} {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) \
+        + f": using {names.get(kind, kind)}"
 
 
 def grid(n: int) -> list[tuple[float, float]]:
@@ -86,7 +88,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
 
 
 def _collect(ov, cam, tracker, dots, width, height):
-    feats, rich, opens, groups, targets, framing = [], [], [], [], [], []
+    feats, rich, pose, opens, groups, targets, framing = [], [], [], [], [], [], []
     for i, (nx, ny) in enumerate(dots):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
         start = last_frame = time.monotonic()
@@ -105,12 +107,14 @@ def _collect(ov, cam, tracker, dots, width, height):
                     continue
                 feats.append(s.feat)
                 rich.append(s.rich)
+                pose.append(s.pose)
                 opens.append(s.openness)
                 groups.append(i)
                 targets.append((nx, ny))
     ov.send(cmd="dot")
     data = {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
-            "opens": np.array(opens), "groups": np.array(groups, int), "targets": np.array(targets).reshape(-1, 2)}
+            "pose": np.array(pose).reshape(-1, 16), "opens": np.array(opens), "groups": np.array(groups, int),
+            "targets": np.array(targets).reshape(-1, 2)}
     return data, np.array(framing).reshape(-1, 3)
 
 
@@ -151,8 +155,8 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         if len(data["groups"]) == 0:
             raise RuntimeError("no usable face frames" + (f". {advice}" if advice else ""))
         try:
-            model, used, n_frames, errors = fit_samples(data["feats"], data["opens"], data["groups"], data["targets"],
-                                                        height / width, mon.name, info.name, rich=data["rich"])
+            model, used, n_frames, errors = fit_samples(data, height / width, mon.name, info.name,
+                                                        screen_mm=hypr.physical_mm(mon.name))
         except ValueError:
             used, n_frames = [], 0
         if len(used) < MIN_DOTS:
@@ -163,7 +167,8 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         err_px = model.error * width
         err_cm = f" ≈ {model.error * mm / 10:.1f} cm" if mm else ""
         summary = (f"Typical error {err_px:.0f} px{err_cm}, {100 * model.error:.0f}% of the screen width "
-                   f"({len(used)}/{len(dots)} dots, {n_frames} frames)\n{compare(errors, model.kind)}")
+                   f"({len(used)}/{len(dots)} dots, {n_frames} frames)\n{compare(errors, model.kind)}"
+                   + (f"\n{model.describe()}" if model.kind == "geometric" else ""))
         if model.error > POOR:
             why = advice or "Check that the camera sees your eyes clearly, and look straight at each dot"
             title, summary = "Calibration is poor: eye focus will jump around", f"{summary}\n\n{why}"

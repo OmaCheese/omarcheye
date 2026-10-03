@@ -19,7 +19,7 @@ from . import samples
 from .calibrate import Cancelled, check_keys, compare, wait_for_start
 from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
-from .model import MOUSE, GazeModel, fit_samples, vectors
+from .model import MOUSE, data_error, fit_samples, load_model, subset
 from .overlay_client import OverlayProcess
 from .tracker import FEATURES, RICH, Camera, FaceTracker, pick_camera
 
@@ -53,7 +53,7 @@ def cell(nx: float, ny: float) -> int:
 
 
 def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
-    feats, rich, opens, groups, targets = [], [], [], [], []
+    feats, rich, pose, opens, groups, targets = [], [], [], [], [], []
     counts = np.zeros(COLS * ROWS, int)
     history: deque = deque(maxlen=90)
     end = time.monotonic() + seconds
@@ -79,6 +79,7 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
             c = cell(nx, ny)
             feats.append(s.feat)
             rich.append(s.rich)
+            pose.append(s.pose)
             opens.append(s.openness)
             groups.append(MOUSE + c)
             targets.append((nx, ny))
@@ -90,13 +91,14 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
                     f"   {max(0, end - now):.0f} s left\n\nEnter: finish now      Esc: cancel")
     ov.send(cmd="grid")
     return {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
-            "opens": np.array(opens), "groups": np.array(groups, int), "targets": np.array(targets).reshape(-1, 2)}
+            "pose": np.array(pose).reshape(-1, 16), "opens": np.array(opens), "groups": np.array(groups, int),
+            "targets": np.array(targets).reshape(-1, 2)}
 
 
 def run(cfg: Config, seconds: float = 60) -> int:
     hypr = Hypr()
     layout = hypr.layout()
-    previous = GazeModel.load(CALIBRATION_PATH) if CALIBRATION_PATH.exists() else None
+    previous = load_model(CALIBRATION_PATH) if CALIBRATION_PATH.exists() else None
     name = (previous.monitor if previous else "") or cfg.monitor
     mon = layout.monitor(name) if name else next((m for m in layout.monitors if m.focused), None)
     if mon is None:
@@ -128,16 +130,14 @@ def run(cfg: Config, seconds: float = 60) -> int:
             raise RuntimeError(f"only {len(cells)} cells got enough frames; rest the pointer in more places")
 
         merged = samples.merge(stored, new)
-        model, used, n_frames, errors = fit_samples(merged["feats"], merged["opens"], merged["groups"],
-                                                    merged["targets"], aspect, mon.name, info.name, score=cells,
-                                                    rich=merged["rich"])
+        model, used, n_frames, errors = fit_samples(merged, aspect, mon.name, info.name, score=cells,
+                                                    screen_mm=hypr.physical_mm(mon.name))
         after = model.error
         before = None
         if previous:
             ok = new["opens"] >= previous.blink
             if ok.any():
-                before = previous.group_error(vectors(new, previous.kind)[ok], new["targets"][ok], new["groups"][ok],
-                                              aspect)
+                before = data_error(previous, subset(new, ok), aspect)
 
         width = ready["width"]
         line = f"on the pointer samples: {100 * after:.0f}% of the screen width ({after * width:.0f} px)"

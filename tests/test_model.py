@@ -60,8 +60,8 @@ def test_rich_features_win_when_they_carry_more():
     rich[:, 0] = rich[:, 2] = f[:, 0]
     rich[:, 4] = 0.2 * (t[:, 1] - 0.5) + rng.normal(0, 0.002, len(f))  # upper lid follows gaze down
     rich[:, -5:] = f[:, 2:]
-    opens = np.full(len(f), 0.25)
-    model, used, frames, errors = fit_samples(f, opens, g, t, 9 / 16, "TEST-1", "cam", rich=rich)
+    data = {"feats": f, "rich": rich, "opens": np.full(len(f), 0.25), "groups": g, "targets": t}
+    model, used, frames, errors = fit_samples(data, 9 / 16, "TEST-1", "cam")
     assert model.kind == "rich" and errors["rich"] < errors["basic"]
 
 
