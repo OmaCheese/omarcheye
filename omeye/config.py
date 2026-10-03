@@ -40,8 +40,8 @@ class Config:
     calibration_points: int = 15
 
     # Focus switching.
-    dwell_ms: int = 400  # the likely window must stay confident this long
-    confidence: float = 0.8  # how sure omeye must be that you look at a window before focusing it
+    dwell_ms: int = 250  # the likely window must stay confident this long (the belief itself takes a few frames)
+    confidence: float = 0.9  # how sure omeye must be that you look at a window before focusing it
     switch_rate: float = 1.5  # expected gaze moves between windows per second
     typing_grace_ms: int = 700  # no switching until this long after the last key/click
     mouse_grace_ms: int = 2000  # the mouse wins for this long after it moves
@@ -50,9 +50,9 @@ class Config:
     away_ms: int = 3000  # face missing this long: check only every 6th frame
     offscreen: float = 0.15  # gaze further outside the monitor than this (fraction) counts as looking away
 
-    # Fixation filter on the gaze point (units: monitor widths).
-    fixation_radius: float = 0.06  # jitter within this stays one fixation
-    fixation_confirm: int = 3  # frames in a row that agree before the point jumps
+    # One Euro filter on the gaze point the preview shows (units: monitor widths).
+    filter_min_cutoff: float = 1.0
+    filter_beta: float = 0.5
 
     notify: bool = True
 

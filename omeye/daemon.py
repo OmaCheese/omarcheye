@@ -7,7 +7,7 @@ import time
 
 from .activity import CursorWatch, InputActivity
 from .config import CALIBRATION_PATH, Config
-from .filters import FixationFilter
+from .filters import OneEuro2D
 from .focus import AWAY, Belief, BeliefParams, on_screen, window_chances
 from .hypr import Hypr, HyprError
 from .model import GazeModel
@@ -82,7 +82,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     tracker = FaceTracker(delegate=cfg.delegate)
     activity = InputActivity(cfg.typing_grace_ms)
     cursor = CursorWatch()
-    fixation = FixationFilter(cfg.fixation_radius, cfg.fixation_confirm)
+    smooth = OneEuro2D(cfg.filter_min_cutoff, cfg.filter_beta)  # the point the preview shows
     belief = Belief(BeliefParams.from_config(cfg))
     sigma = max(model.error / 1.2533, 0.02)  # per-axis gaze error in monitor widths (mean radial error / sqrt(pi/2))
     overlay = OverlayProcess(model.monitor, "follow") if preview else None
@@ -109,7 +109,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     log("camera stopped sending video")
                     cam.close()
                     cam = open_camera(cfg, model, stop)
-                    fixation.reset()
+                    smooth.reset()
                     belief.reset()
                     last_face = last_frame = time.monotonic()
                 continue
@@ -132,18 +132,18 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 continue  # blink: hold everything as it is
             # Each frame's own point, with the calibration's uncertainty, gives
             # the chance of each window on screen; the belief combines frames.
-            # The fixation filter gives the steady point the preview shows.
+            # The One Euro filter gives the steady point the preview shows.
             chances = gaze = None
             if sample is not None:
                 stats["faces"] += 1
                 if now - last_face > lost:
-                    fixation.reset()
+                    smooth.reset()
                 last_face = now
                 point = on_screen(model.predict_sample(sample), cfg.offscreen) if mon else None
                 if point:
                     chances = window_chances(layout.windows, *mon.to_global(*point), sigma * mon.w)
                     aspect = mon.h / mon.w
-                    fx, fy = fixation(point[0], point[1] * aspect)
+                    fx, fy = smooth(now, point[0], point[1] * aspect)
                     gaze = mon.to_global(fx, fy / aspect)
             if chances is None:  # no face, or looking away
                 chances = {**{w.address: 0.0 for w in layout.windows}, AWAY: 1.0}

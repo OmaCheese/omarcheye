@@ -57,8 +57,8 @@ def window_chances(windows: list[Window], x: float, y: float, sigma: float) -> d
 
 @dataclass
 class BeliefParams:
-    dwell: float = 0.4  # seconds the belief must stay confident
-    confidence: float = 0.8  # belief a window needs before focus moves
+    dwell: float = 0.25  # seconds the belief must stay confident
+    confidence: float = 0.9  # belief a window needs before focus moves
     switch_rate: float = 1.5  # expected gaze moves between windows per second
     temper: float = 0.5  # frames aren't independent (the error is mostly a steady offset): soften each one
     typing_grace: float = 0.7

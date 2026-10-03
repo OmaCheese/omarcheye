@@ -1,40 +1,45 @@
-"""Fixation filter: the gaze point holds still while the eyes rest and moves
-only when they clearly jump.
+"""One Euro filter (Casiez, Roussel & Vogel, 2012): heavy smoothing when the
+gaze holds still, little lag when it jumps."""
 
-Points are in monitor widths (y scaled by height/width), so a distance means
-the same across and down. A point within `radius` of the current fixation
-joins it, and the output is the median of the fixation's last `window`
-points. A point further away starts a possible jump; `confirm` such points in
-a row that agree with each other (within `radius`) become the new fixation.
-A lone stray point is ignored, and so is jitter within the radius.
-"""
-
-import numpy as np
+import math
 
 
-class FixationFilter:
-    def __init__(self, radius: float = 0.06, confirm: int = 3, window: int = 15):
-        self.radius, self.confirm, self.window = radius, confirm, window
+class OneEuro:
+    def __init__(self, min_cutoff: float = 1.0, beta: float = 0.5, d_cutoff: float = 1.0):
+        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
         self.reset()
 
     def reset(self) -> None:
-        self.points: list[np.ndarray] = []
-        self.pending: list[np.ndarray] = []
+        self.t = None
+        self.x = 0.0
+        self.dx = 0.0
 
-    def __call__(self, x: float, y: float) -> tuple[float, float]:
-        p = np.array([x, y])
-        if not self.points:
-            self.points = [p]
-            return x, y
-        centre = np.median(self.points, 0)
-        if np.linalg.norm(p - centre) <= self.radius:
-            self.points = (self.points + [p])[-self.window:]
-            self.pending = []
-        else:
-            if self.pending and np.linalg.norm(p - np.median(self.pending, 0)) > self.radius:
-                self.pending = []  # strays in different directions: not a jump
-            self.pending.append(p)
-            if len(self.pending) >= self.confirm:
-                self.points, self.pending = self.pending, []
-        centre = np.median(self.points, 0)
-        return float(centre[0]), float(centre[1])
+    @staticmethod
+    def _alpha(cutoff: float, dt: float) -> float:
+        tau = 1.0 / (2 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def __call__(self, t: float, x: float) -> float:
+        if self.t is None or t <= self.t:
+            self.t, self.x, self.dx = t, x, 0.0
+            return x
+        dt = t - self.t
+        dx = (x - self.x) / dt
+        self.dx += self._alpha(self.d_cutoff, dt) * (dx - self.dx)
+        cutoff = self.min_cutoff + self.beta * abs(self.dx)
+        self.x += self._alpha(cutoff, dt) * (x - self.x)
+        self.t = t
+        return self.x
+
+
+class OneEuro2D:
+    def __init__(self, min_cutoff: float = 1.0, beta: float = 0.5):
+        self.fx = OneEuro(min_cutoff, beta)
+        self.fy = OneEuro(min_cutoff, beta)
+
+    def reset(self) -> None:
+        self.fx.reset()
+        self.fy.reset()
+
+    def __call__(self, t: float, x: float, y: float) -> tuple[float, float]:
+        return self.fx(t, x), self.fy(t, y)

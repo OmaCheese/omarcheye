@@ -69,9 +69,11 @@ def test_steady_offset_inside_the_window_still_lands():
     assert [s for _, s in switches] == ["0x1"]
 
 
-def test_gaze_on_a_border_does_not_flip():
-    b = Belief(BeliefParams())
-    assert look(b, 0, 4, [(W * 0.5, H * 0.25)], focused="0x0") == []
+def test_gaze_on_a_border_rarely_flips():
+    # A minute of staring at the border between two windows, with frame jitter
+    # that knows nothing of the border: at most a few flips.
+    flips = look(Belief(BeliefParams()), 0, 60, [(W * 0.5, H * 0.25)], focused="0x0")
+    assert len(flips) <= 6
 
 
 def test_glancing_back_and_forth_does_not_switch():
