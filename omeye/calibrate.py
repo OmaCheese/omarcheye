@@ -5,16 +5,17 @@ import time
 
 import numpy as np
 
-from .config import CALIBRATION_PATH, Config
+from .config import CALIBRATION_PATH, SAMPLES_PATH, Config
 from .hypr import Hypr
 from .model import fit, inliers
 from .overlay_client import OverlayProcess
-from .tracker import Camera, FaceTracker, list_cameras, pick_camera
+from .tracker import Camera, FaceTracker, framing_advice, list_cameras, pick_camera
 
 SETTLE = 0.9  # seconds for the eyes to land on a new dot
 COLLECT = 1.1  # seconds of frames kept per dot
 MIN_FRAMES = 8
 MIN_DOTS = 8
+POOR = 0.15  # cross-validated error above this share of the screen width: warn
 
 INTRO = (
     "omeye calibration\n\n"
@@ -43,7 +44,7 @@ def _check_keys(ov: OverlayProcess) -> str | None:
 
 
 def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera: str, note: str) -> None:
-    seen: list[bool] = []
+    seen: list = []  # recent samples, None where no face
     shown = None
     last_frame = time.monotonic()
     brightness = 128.0
@@ -52,12 +53,15 @@ def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camer
         if frame is not None:
             last_frame = time.monotonic()
             brightness = float(frame[::16, ::16].mean())
-            seen = (seen + [tracker.process(frame, last_frame) is not None])[-15:]
-        face = sum(seen) >= 10
+            seen = (seen + [tracker.process(frame, last_frame)])[-15:]
+        found = [s for s in seen if s is not None]
+        face = len(found) >= 10
         if time.monotonic() - last_frame > 2:
             status = f"No video from {camera}"
         elif face:
-            status = "Face found"
+            pos = tuple(np.median([s.pos for s in found], 0))
+            advice = framing_advice(pos, float(np.median([s.margin for s in found])))
+            status = f"Face found, but: {advice}" if advice else "Face found"
         elif brightness < 10:
             status = "The camera image is black: is the lens covered, or the phone camera off?"
         else:
@@ -70,7 +74,7 @@ def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camer
 
 
 def _collect(ov, cam, tracker, dots, width, height):
-    feats, opens, groups, targets = [], [], [], []
+    feats, opens, groups, targets, framing = [], [], [], [], []
     for i, (nx, ny) in enumerate(dots):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
         start = last_frame = time.monotonic()
@@ -84,12 +88,15 @@ def _collect(ov, cam, tracker, dots, width, height):
             last_frame = time.monotonic()
             s = tracker.process(frame, time.monotonic())
             if s is not None and elapsed >= SETTLE:
+                framing.append((*s.pos, s.margin))
+                if s.cut_off:
+                    continue
                 feats.append(s.feat)
                 opens.append(s.openness)
                 groups.append(i)
                 targets.append((nx, ny))
     ov.send(cmd="dot")
-    return np.array(feats), np.array(opens), np.array(groups), np.array(targets)
+    return np.array(feats), np.array(opens), np.array(groups), np.array(targets), np.array(framing)
 
 
 def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
@@ -119,11 +126,17 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         _wait_for_start(ov, cam, tracker, info.name, note)
         dots = grid(points or cfg.calibration_points)
         random.shuffle(dots)
-        f, opens, groups, targets = _collect(ov, cam, tracker, dots, width, height)
+        f, opens, groups, targets, framing = _collect(ov, cam, tracker, dots, width, height)
         ov.send(cmd="text", text="Fitting…")
+        SAMPLES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(SAMPLES_PATH, feats=f, opens=opens, groups=groups, targets=targets, framing=framing,
+                 dots=np.array(dots), size=np.array([width, height]))
 
+        advice = ""
+        if len(framing):
+            advice = framing_advice(tuple(np.median(framing[:, :2], 0)), float(np.median(framing[:, 2])))
         if len(f) == 0:
-            raise RuntimeError("no face frames recorded")
+            raise RuntimeError("no usable face frames" + (f". {advice}" if advice else ""))
         blink = 0.6 * float(np.median(opens))
         keep = opens >= blink
         keep[keep] = inliers(f[keep], groups[keep])
@@ -131,16 +144,23 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         keep &= counts[groups] >= MIN_FRAMES
         n_dots = int((counts >= MIN_FRAMES).sum())
         if n_dots < MIN_DOTS:
-            raise RuntimeError(f"only {n_dots} of {len(dots)} dots had a clear view of your eyes")
+            raise RuntimeError(f"only {n_dots} of {len(dots)} dots had a clear view of your eyes"
+                               + (f". {advice}" if advice else ""))
 
         model = fit(f[keep], targets[keep], groups[keep], height / width, mon.name, blink, info.name)
         model.save(CALIBRATION_PATH)
 
         err_px = model.error * width
         err_cm = f" ≈ {model.error * mm / 10:.1f} cm" if mm else ""
-        summary = f"Typical error {err_px:.0f} px{err_cm} ({n_dots}/{len(dots)} dots, {keep.sum()} frames)"
-        print(f"omeye: {summary}; saved {CALIBRATION_PATH}")
-        ov.send(cmd="text", text=f"Calibrated\n\n{summary}\n\nPress any key")
+        summary = (f"Typical error {err_px:.0f} px{err_cm}, {100 * model.error:.0f}% of the screen width "
+                   f"({n_dots}/{len(dots)} dots, {keep.sum()} frames)")
+        if model.error > POOR:
+            why = advice or "Check that the camera sees your eyes clearly, and look straight at each dot"
+            title, summary = "Calibration is poor: eye focus will jump around", f"{summary}\n\n{why}"
+        else:
+            title = "Calibrated"
+        print(f"omeye: {title}. {summary}".replace("\n\n", ". ") + f"; saved {CALIBRATION_PATH}")
+        ov.send(cmd="text", text=f"{title}\n\n{summary}\n\nPress any key")
         end = time.monotonic() + 6
         while time.monotonic() < end and _check_keys(ov) is None:
             time.sleep(0.05)

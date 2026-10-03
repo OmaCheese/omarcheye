@@ -12,7 +12,7 @@ from .focus import Dwell, DwellParams, hit_test
 from .hypr import Hypr, HyprError
 from .model import GazeModel
 from .overlay_client import OverlayProcess
-from .tracker import Camera, FaceTracker, pick_camera
+from .tracker import Camera, FaceTracker, framing_advice, pick_camera
 
 STATS_EVERY = 30.0
 
@@ -107,7 +107,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     last_face = last_frame = time.monotonic()
                 continue
             last_frame = now
-            sample = tracker.process(frame, now)
+            seen = tracker.process(frame, now)
+            sample = None if seen is None or seen.cut_off else seen  # cut-off face: eye landmarks are guesses
             stats["busy"] += time.monotonic() - now
             stats["frames"] += 1
 
@@ -151,8 +152,9 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     overlay.send(cmd="gaze")
                 busy = ("typing" if now - activity.last(now) < dwell.p.typing_grace
                         else "mouse" if now - cursor.last_move < dwell.p.mouse_grace else "")
+                advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
-                             f"   face {'yes' if sample else 'no'}   {busy}")
+                             f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))
 
             if verbose and now - stats_since >= STATS_EVERY:
                 n = max(stats["frames"], 1)

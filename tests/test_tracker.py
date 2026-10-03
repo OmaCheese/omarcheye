@@ -76,3 +76,13 @@ def test_named_idle_camera_explains_itself():
         pick_camera("Flux Camera", cams=cams(False))
     with pytest.raises(RuntimeError, match="no camera named"):
         pick_camera("Logitech", cams=cams(True))
+
+
+def test_framing_advice():
+    from omeye.tracker import framing_advice
+
+    assert "tilt the camera up" in framing_advice((0.57, 0.07), -0.1)
+    assert "tilt the camera down" in framing_advice((0.5, 0.8), 0.05)
+    assert "side" in framing_advice((0.1, 0.5), 0.05)
+    assert "outside" in framing_advice((0.5, 0.5), 0.0)
+    assert framing_advice((0.5, 0.45), 0.1) == ""

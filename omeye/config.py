@@ -14,6 +14,7 @@ DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "omeye
 
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 CALIBRATION_PATH = STATE_DIR / "calibration.json"
+SAMPLES_PATH = STATE_DIR / "calibration-samples.npz"  # raw numbers from the last calibration
 MODEL_PATH = DATA_DIR / "models/face_landmarker.task"
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"

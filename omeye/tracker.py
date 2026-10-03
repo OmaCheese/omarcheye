@@ -31,11 +31,35 @@ B_LEFT, B_RIGHT, B_UPPER, B_LOWER, B_IRIS = 362, 263, 386, 374, 473
 FEATURES = ("u", "v", "yaw", "pitch", "hx", "hy", "hz")
 
 
+EDGE = 0.01  # a landmark closer than this to the image border (fraction of the image): face cut off
+
+
 @dataclass
 class Sample:
     t: float
     feat: np.ndarray  # ordered as FEATURES
     openness: float  # eyelid gap / eye width, both eyes averaged
+    pos: tuple[float, float] = (0.5, 0.5)  # face centre in the camera image, 0..1
+    margin: float = 1.0  # nearest landmark to the image border, as a fraction of the image
+
+    @property
+    def cut_off(self) -> bool:
+        """Part of the face is outside the image, so the eye landmarks are guesses."""
+        return self.margin < EDGE
+
+
+def framing_advice(pos: tuple[float, float], margin: float) -> str:
+    """What to do about the camera's aim, or "" when the face sits well."""
+    x, y = pos
+    if y < 0.3:
+        return "Your face is near the top of the camera image: tilt the camera up"
+    if y > 0.7:
+        return "Your face is near the bottom of the camera image: tilt the camera down"
+    if not 0.25 <= x <= 0.75:
+        return "Your face is near the side of the camera image: turn the camera towards you"
+    if margin < EDGE:
+        return "Part of your face is outside the camera image: move further from the camera"
+    return ""
 
 
 def eye_features(p: np.ndarray, left: int, right: int, upper: int, lower: int, iris: int):
@@ -129,7 +153,11 @@ class FaceTracker:
             return None
         h, w = frame_bgr.shape[:2]
         points = np.array([(q.x * w, q.y * h) for q in result.face_landmarks[0]])
-        return features(points, result.facial_transformation_matrixes[0], t)
+        sample = features(points, result.facial_transformation_matrixes[0], t)
+        lo, hi = points.min(0), points.max(0)
+        sample.pos = (float(lo[0] + hi[0]) / 2 / w, float(lo[1] + hi[1]) / 2 / h)
+        sample.margin = float(min(lo[0] / w, lo[1] / h, 1 - hi[0] / w, 1 - hi[1] / h))
+        return sample
 
     def close(self) -> None:
         self.landmarker.close()
