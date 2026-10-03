@@ -2,7 +2,7 @@
 
 Look at a window and it gets focus. omeye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omeye toggle` (or a key bound to it).
 
-Status: version 0.1. The full pipeline runs, but it has not been tried with a face in front of the camera yet: on lunar-gouda the lid is shut and the plug-in webcam is still to come.
+Status: version 0.1. The full pipeline runs, including from a phone camera streamed through Flux, but it has not tracked a real face yet. On lunar-gouda the lid is shut, and the first phone stream only sent black frames.
 
 ## How it works
 
@@ -22,7 +22,11 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 
 ## Setup
 
-1. Mount the webcam on top of the monitor, centred. Any 1080p plug-in webcam works; infrared is not needed. With `camera = "auto"`, omeye prefers a plug-in camera over the laptop's built-in one.
+1. Put a camera on top of the monitor, centred and facing you. Either:
+   - a plug-in webcam: any 1080p one works, and infrared isn't needed; or
+   - a phone running Flux (`omarchy-flux`), started as a webcam from the phone. It appears as the virtual camera "Flux Camera".
+
+   With `camera = "auto"`, omeye takes a camera that is sending video, and prefers anything to the laptop's built-in one. `omeye cameras` shows what it sees.
 2. Install:
 
    ```bash
@@ -48,6 +52,8 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 | `omeye bench [--seconds S]` | Landmark speed and processor load |
 
 `calibrate`, `preview` and `bench` pause the service while they use the camera, then start it again.
+
+The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
 ## Settings
 
@@ -77,6 +83,7 @@ After 3 s without a face, omeye checks only every sixth frame. The service runs 
 
 - **MediaPipe was killed with SIGKILL at start-up.** `mediapipe` imports `sounddevice` for its audio tasks. Initialising PortAudio goes through the Advanced Linux Sound Architecture (ALSA) into PipeWire, whose realtime module leaves the process with a realtime CPU-time limit of 0, and the kernel kills it once inference starts. omeye has no audio, so `tracker.py` installs an empty `sounddevice` module before importing MediaPipe.
 - **The GPU delegate silently ran in software.** MediaPipe opens the first render node, which on this laptop is the NVIDIA card. Mesa can't drive that, so it fell back to `llvmpipe`. With `delegate = "gpu"`, omeye sets `DRI_PRIME` to the first non-NVIDIA Peripheral Component Interconnect (PCI) device (here `pci-0000_07_00_0`, the Radeon).
+- **A virtual camera only offers video while something feeds it.** The Flux camera is a v4l2loopback device. With no stream it accepts video in but offers none out, and OpenCV then can't open it. `tracker.py` asks each device what it can do (`VIDIOC_QUERYCAP`) and skips idle ones. When a stream stops, the next read blocks for OpenCV's default 10 s; `OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT=2` shortens that, because OpenCV doesn't support `CAP_PROP_READ_TIMEOUT_MSEC` for V4L2.
 - **Hyprland 0.56 has Lua dispatchers.** Focus is `dispatch hl.dsp.focus({ window = "address:0x…" })` on the request socket. `hypr.py` falls back to the old `focuswindow` form on older releases.
 - **Overlay.** The calibration and preview overlay is a GTK 4 layer-shell surface. It needs the system Python (PyGObject) and `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`, so `overlay_client.py` starts it as a separate process and talks to it in lines of text on standard input and output.
 

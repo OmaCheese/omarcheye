@@ -47,7 +47,15 @@ def cmd_on(cfg, args) -> int:
     if r.returncode:
         print(r.stderr.strip() or f"omeye: could not start {SERVICE}; run ./install.sh", file=sys.stderr)
         return 1
-    notify(cfg, "Eye focus on")
+    from .tracker import pick_camera
+
+    camera = json.loads(CALIBRATION_PATH.read_text()).get("camera") or cfg.camera
+    try:
+        pick_camera(camera if cfg.camera == "auto" else cfg.camera, quiet=True)
+        notify(cfg, "Eye focus on")
+    except RuntimeError as e:
+        print(f"omeye: on, waiting for the camera: {e}", file=sys.stderr)
+        notify(cfg, f"Eye focus on, waiting for the camera: {e}")
     return 0
 
 
@@ -72,8 +80,8 @@ def cmd_status(cfg, args) -> int:
     from .tracker import pick_camera
 
     try:
-        dev, name = pick_camera(cfg.camera)
-        print(f"camera:      {name} ({dev})")
+        cam = pick_camera(cfg.camera, quiet=True)
+        print(f"camera:      {cam.name} ({cam.device})")
     except RuntimeError as e:
         print(f"camera:      {e}")
     return 0
@@ -103,11 +111,13 @@ def cmd_cameras(cfg, args) -> int:
     from .tracker import list_cameras, pick_camera
 
     try:
-        chosen = pick_camera(cfg.camera)[0]
+        chosen = pick_camera(cfg.camera, quiet=True).device
     except RuntimeError:
         chosen = None
-    for dev, name in list_cameras():
-        print(f"{'*' if dev == chosen else ' '} {dev}  {name}")
+    for c in list_cameras():
+        state = "sending video" if c.live else "idle: nothing feeds it" if c.virtual else "no video"
+        kind = "virtual" if c.virtual else "built-in" if c.builtin else "plug-in"
+        print(f"{'*' if c.device == chosen else ' '} {c.device}  {c.name}  ({kind}, {state})")
     print(f"(* = used with camera = {cfg.camera!r})")
     return 0
 
@@ -117,11 +127,15 @@ def cmd_bench(cfg, args) -> int:
 
     from .tracker import Camera, FaceTracker, pick_camera
 
-    device, name = pick_camera(cfg.camera)
+    try:
+        info = pick_camera(cfg.camera)
+    except RuntimeError as e:
+        print(f"omeye: {e}", file=sys.stderr)
+        return 1
     with camera_free():
         tracker = FaceTracker(delegate=cfg.delegate)
-        cam = Camera(device, cfg.width, cfg.height, cfg.fps)
-        print(f"omeye: {args.seconds} s on {name} ({device}) at {'x'.join(map(str, cam.size()))}, "
+        cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
+        print(f"omeye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
               f"landmarks on {cfg.delegate.upper()}")
         times, faces = [], 0
         cpu0, wall0 = time.process_time(), time.monotonic()

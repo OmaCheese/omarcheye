@@ -44,3 +44,35 @@ def test_built_in_camera_names():
     assert BUILT_IN.search("HP Wide Vision HD Camera: HP Wi")
     assert BUILT_IN.search("Integrated Camera: Integrated C")
     assert not BUILT_IN.search("Logitech BRIO")
+
+
+def cams(phone_live: bool):
+    from omeye.tracker import CameraInfo
+
+    return [
+        CameraInfo("/dev/video0", "HP Wide Vision HD Camera: HP Wi", True, False, True),
+        CameraInfo("/dev/video2", "Flux Camera", phone_live, True, False),
+    ]
+
+
+def test_auto_prefers_a_live_phone_camera():
+    from omeye.tracker import pick_camera
+
+    assert pick_camera("auto", quiet=True, cams=cams(True)).device == "/dev/video2"
+
+
+def test_auto_skips_an_idle_virtual_camera():
+    from omeye.tracker import pick_camera
+
+    assert pick_camera("auto", quiet=True, cams=cams(False)).device == "/dev/video0"
+
+
+def test_named_idle_camera_explains_itself():
+    import pytest
+
+    from omeye.tracker import pick_camera
+
+    with pytest.raises(RuntimeError, match="nothing is feeding it.*Flux"):
+        pick_camera("Flux Camera", cams=cams(False))
+    with pytest.raises(RuntimeError, match="no camera named"):
+        pick_camera("Logitech", cams=cams(True))

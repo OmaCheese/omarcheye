@@ -5,16 +5,22 @@ in eye widths; both eyes averaged) plus head pose (yaw, pitch, and position
 relative to the camera). The calibration (model.py) maps them to the screen.
 """
 
+import fcntl
 import math
 import os
 import re
+import struct
 import sys
 import types
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
-import numpy as np
+# A camera that stops sending (a phone webcam whose stream ends) makes
+# OpenCV's V4L2 read() wait this many seconds before failing; the default is 10.
+os.environ.setdefault("OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT", "2")
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
 
 from .config import MODEL_PATH
 
@@ -131,33 +137,84 @@ class FaceTracker:
 
 BUILT_IN = re.compile(r"integrated|wide.?vision|built.?in|internal|laptop", re.I)
 
+VIDIOC_QUERYCAP = 0x80685600  # _IOR('V', 0, struct v4l2_capability), 104 bytes
+CAP_VIDEO_CAPTURE = 0x00000001
+CAP_VIDEO_CAPTURE_MPLANE = 0x00001000
+CAP_DEVICE_CAPS = 0x80000000
 
-def list_cameras() -> list[tuple[str, str]]:
-    """(device, name) for every video capture node."""
+
+@dataclass
+class CameraInfo:
+    device: str
+    name: str
+    live: bool  # offers video capture now; a virtual camera only does while something feeds it
+    virtual: bool  # v4l2loopback, e.g. Flux's phone webcam
+    builtin: bool
+
+    def not_live_reason(self) -> str:
+        if self.virtual:
+            return (f"{self.name} ({self.device}) is a virtual camera and nothing is feeding it; "
+                    "for Flux, start the webcam from the phone")
+        return f"{self.name} ({self.device}) is not offering video"
+
+
+def _device_caps(device: str) -> int | None:
+    try:
+        fd = os.open(device, os.O_RDWR | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        buf = fcntl.ioctl(fd, VIDIOC_QUERYCAP, bytes(104))
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    caps, device_caps = struct.unpack_from("<II", buf, 84)
+    return device_caps if caps & CAP_DEVICE_CAPS else caps
+
+
+def list_cameras() -> list[CameraInfo]:
+    """Every camera: capture nodes, plus virtual cameras even while idle.
+    Metadata nodes (a second /dev/video per webcam) are left out."""
     cams = []
     for node in sorted(Path("/sys/class/video4linux").glob("video*"), key=lambda p: int(p.name[5:])):
+        device = f"/dev/{node.name}"
         try:
-            if (node / "index").read_text().strip() != "0":
-                continue  # metadata node of the same camera
-            cams.append((f"/dev/{node.name}", (node / "name").read_text().strip()))
+            name = (node / "name").read_text().strip()
+            virtual = "/virtual/" in os.path.realpath(node / "device")
         except OSError:
             continue
+        caps = _device_caps(device)
+        live = caps is not None and bool(caps & (CAP_VIDEO_CAPTURE | CAP_VIDEO_CAPTURE_MPLANE))
+        if live or virtual:
+            cams.append(CameraInfo(device, name, live, virtual, bool(BUILT_IN.search(name))))
     return cams
 
 
-def pick_camera(spec: str) -> tuple[str, str]:
-    cams = list_cameras()
+def pick_camera(spec: str, quiet: bool = False, cams: list[CameraInfo] | None = None) -> CameraInfo:
+    """The camera named by `spec` ("auto", a /dev path or part of a name).
+
+    "auto" takes a camera that is sending video, preferring anything over the
+    laptop's built-in one. Raises RuntimeError when the camera isn't there.
+    """
+    cams = list_cameras() if cams is None else cams
     if spec.startswith("/dev/"):
-        return spec, dict(cams).get(spec, spec)
-    if spec != "auto":
-        for dev, name in cams:
-            if spec.lower() in name.lower():
-                return dev, name
-        raise RuntimeError(f"no camera named like {spec!r}; `omeye cameras` lists them")
-    if not cams:
-        raise RuntimeError("no camera found")
-    plug_in = [c for c in cams if not BUILT_IN.search(c[1])]
-    return (plug_in or cams)[0]
+        cam = next((c for c in cams if c.device == spec), None) or CameraInfo(spec, spec, True, False, False)
+    elif spec != "auto":
+        cam = next((c for c in cams if spec.lower() in c.name.lower()), None)
+        if cam is None:
+            raise RuntimeError(f"no camera named like {spec!r}; `omeye cameras` lists them")
+    else:
+        live = [c for c in cams if c.live]
+        idle = [c for c in cams if not c.live]
+        if not live:
+            raise RuntimeError(idle[0].not_live_reason() if idle else "no camera found")
+        cam = next((c for c in live if not c.builtin), live[0])
+        if cam.builtin and idle and not quiet:
+            print(f"omeye: {idle[0].not_live_reason()}; using {cam.name}", file=sys.stderr)
+    if not cam.live:
+        raise RuntimeError(cam.not_live_reason())
+    return cam
 
 
 class Camera:

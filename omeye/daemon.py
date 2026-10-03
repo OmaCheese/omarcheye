@@ -39,6 +39,25 @@ class LayoutPoller:
                 log(f"layout: {e}")
 
 
+def open_camera(cfg: Config, model: GazeModel, stop: threading.Event) -> Camera | None:
+    """The calibrated camera, once it sends video (a phone webcam may come and
+    go). None if asked to stop first."""
+    spec = model.camera if cfg.camera == "auto" and model.camera else cfg.camera
+    said = None
+    while not stop.is_set():
+        try:
+            info = pick_camera(spec, quiet=True)
+            cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
+            log(f"camera: {info.name} ({info.device})")
+            return cam
+        except RuntimeError as e:
+            if str(e) != said:
+                log(f"waiting for the camera: {e}")
+                said = str(e)
+        stop.wait(2)
+    return None
+
+
 def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool = False) -> int:
     if not CALIBRATION_PATH.exists():
         log("not calibrated yet; run `omeye calibrate`")
@@ -50,12 +69,12 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     if mon is None:
         log(f"calibrated monitor {model.monitor} is not connected")
         return 1
-    device, cam_name = pick_camera(cfg.camera)
-    if model.camera and cam_name != model.camera:
-        log(f"calibrated with {model.camera!r} but using {cam_name!r}; run `omeye calibrate`")
+
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
 
     tracker = FaceTracker(delegate=cfg.delegate)
-    cam = Camera(device, cfg.width, cfg.height, cfg.fps)
     activity = InputActivity(cfg.typing_grace_ms)
     cursor = CursorWatch()
     gaze_filter = OneEuro2D(cfg.filter_min_cutoff, cfg.filter_beta)
@@ -64,19 +83,14 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     lost = cfg.lost_ms / 1000
     away = cfg.away_ms / 1000
 
-    stop = threading.Event()
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    signal.signal(signal.SIGINT, lambda *_: stop.set())
-
-    log(f"tracking with {cam_name} ({device}) on {model.monitor}; "
-        f"calibration error {model.error * mon.w:.0f} px" + (" [dry run]" if dry_run else ""))
-    last_face = time.monotonic()
-    bad_frames = 0
+    log(f"on {model.monitor}, calibration error {model.error * mon.w:.0f} px" + (" [dry run]" if dry_run else ""))
+    cam = open_camera(cfg, model, stop)
+    last_face = last_frame = time.monotonic()
     frame_no = 0
     stats = {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0}
     stats_since = time.monotonic()
     try:
-        while not stop.is_set():
+        while cam is not None and not stop.is_set():
             frame_no += 1
             if time.monotonic() - last_face > away and frame_no % 6:
                 cam.skip()  # nobody there: look only every 6th frame
@@ -84,12 +98,15 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
             frame = cam.read()
             now = time.monotonic()
             if frame is None:
-                bad_frames += 1
-                if bad_frames > 60:
-                    log("camera stopped delivering frames")
-                    return 1
+                if now - last_frame > 1.5:
+                    log("camera stopped sending video")
+                    cam.close()
+                    cam = open_camera(cfg, model, stop)
+                    gaze_filter.reset()
+                    dwell.reset()
+                    last_face = last_frame = time.monotonic()
                 continue
-            bad_frames = 0
+            last_frame = now
             sample = tracker.process(frame, now)
             stats["busy"] += time.monotonic() - now
             stats["frames"] += 1
@@ -149,5 +166,6 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
         activity.close()
         if overlay:
             overlay.close()
-        cam.close()
+        if cam is not None:
+            cam.close()
         tracker.close()

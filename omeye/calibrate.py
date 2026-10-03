@@ -9,7 +9,7 @@ from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
 from .model import fit, inliers
 from .overlay_client import OverlayProcess
-from .tracker import Camera, FaceTracker, pick_camera
+from .tracker import Camera, FaceTracker, list_cameras, pick_camera
 
 SETTLE = 0.9  # seconds for the eyes to land on a new dot
 COLLECT = 1.1  # seconds of frames kept per dot
@@ -42,17 +42,28 @@ def _check_keys(ov: OverlayProcess) -> str | None:
     return None
 
 
-def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker) -> None:
+def _wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera: str, note: str) -> None:
     seen: list[bool] = []
     shown = None
+    last_frame = time.monotonic()
+    brightness = 128.0
     while True:
         frame = cam.read()
         if frame is not None:
-            seen = (seen + [tracker.process(frame, time.monotonic()) is not None])[-15:]
+            last_frame = time.monotonic()
+            brightness = float(frame[::16, ::16].mean())
+            seen = (seen + [tracker.process(frame, last_frame) is not None])[-15:]
         face = sum(seen) >= 10
-        status = "Face found" if face else "No face found: is the camera looking at you?"
+        if time.monotonic() - last_frame > 2:
+            status = f"No video from {camera}"
+        elif face:
+            status = "Face found"
+        elif brightness < 10:
+            status = "The camera image is black: is the lens covered, or the phone camera off?"
+        else:
+            status = "No face found: is the camera looking at you?"
         if status != shown:
-            ov.send(cmd="text", text=f"{INTRO}\n\n{status}")
+            ov.send(cmd="text", text=f"{INTRO}\n\nCamera: {camera}\n{status}" + (f"\n\n{note}" if note else ""))
             shown = status
         if _check_keys(ov) == "space" and face:
             return
@@ -62,12 +73,15 @@ def _collect(ov, cam, tracker, dots, width, height):
     feats, opens, groups, targets = [], [], [], []
     for i, (nx, ny) in enumerate(dots):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
-        start = time.monotonic()
+        start = last_frame = time.monotonic()
         while (elapsed := time.monotonic() - start) < SETTLE + COLLECT:
             _check_keys(ov)
             frame = cam.read()
             if frame is None:
+                if time.monotonic() - last_frame > 3:
+                    raise RuntimeError("the camera stopped sending video")
                 continue
+            last_frame = time.monotonic()
             s = tracker.process(frame, time.monotonic())
             if s is not None and elapsed >= SETTLE:
                 feats.append(s.feat)
@@ -87,16 +101,22 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         print(f"omeye: monitor {name!r} not found")
         return 1
     mm = next((m.get("physicalWidth", 0) for m in hypr.json("monitors") if m["name"] == mon.name), 0)
-    device, cam_name = pick_camera(cfg.camera)
-    print(f"omeye: calibrating {mon.name} with {cam_name} ({device})")
+    try:
+        info = pick_camera(cfg.camera)
+    except RuntimeError as e:
+        print(f"omeye: {e}")
+        return 1
+    idle = [c for c in list_cameras() if not c.live]
+    note = idle[0].not_live_reason() if info.builtin and idle else ""
+    print(f"omeye: calibrating {mon.name} with {info.name} ({info.device})")
 
     tracker = FaceTracker(delegate=cfg.delegate)
-    cam = Camera(device, cfg.width, cfg.height, cfg.fps)
+    cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "calibrate")
     try:
         ready = ov.wait_for("ready", 8)
         width, height = ready["width"], ready["height"]
-        _wait_for_start(ov, cam, tracker)
+        _wait_for_start(ov, cam, tracker, info.name, note)
         dots = grid(points or cfg.calibration_points)
         random.shuffle(dots)
         f, opens, groups, targets = _collect(ov, cam, tracker, dots, width, height)
@@ -113,7 +133,7 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         if n_dots < MIN_DOTS:
             raise RuntimeError(f"only {n_dots} of {len(dots)} dots had a clear view of your eyes")
 
-        model = fit(f[keep], targets[keep], groups[keep], height / width, mon.name, blink, cam_name)
+        model = fit(f[keep], targets[keep], groups[keep], height / width, mon.name, blink, info.name)
         model.save(CALIBRATION_PATH)
 
         err_px = model.error * width
