@@ -12,7 +12,7 @@ to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "grid",
 "cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
 {"cmd": "camera", "jpeg": base64, "caption", "place": "center" | "corner"}
 (no jpeg to hide), {"cmd": "rect", "x", "y", "w", "h", "label", "on"} (no x to
-hide), {"cmd": "quit"}.
+hide), {"cmd": "point", "x", "y"} (a small dot; no x to hide), {"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
 
@@ -57,6 +57,7 @@ class Overlay(Gtk.ApplicationWindow):
         self.grid = None  # (cols, rows, fill per cell)
         self.camera = None  # (pixbuf, caption, place)
         self.rect = None  # (x, y, w, h, label, on)
+        self.point = None  # (x, y)
         self.add_css_class(f"omeye-{mode}")
 
         LayerShell.init_for_window(self)
@@ -109,6 +110,8 @@ class Overlay(Gtk.ApplicationWindow):
                 self.camera = (loader.get_pixbuf(), msg.get("caption", ""), msg.get("place", "corner"))
             else:
                 self.camera = None
+        elif cmd == "point":
+            self.point = (msg["x"], msg["y"]) if "x" in msg else None
         elif cmd == "rect":
             self.rect = (msg["x"], msg["y"], msg["w"], msg["h"], msg.get("label", ""), msg.get("on", False)) \
                 if "x" in msg else None
@@ -159,6 +162,14 @@ class Overlay(Gtk.ApplicationWindow):
                 cr.set_font_size(16)
                 cr.move_to(x + 12, y + 26)
                 cr.show_text(label)
+        if self.point:
+            x, y = self.point
+            cr.set_source_rgba(0.07, 0.07, 0.09, 0.6)
+            cr.arc(x, y, 8, 0, 6.2832)
+            cr.fill()
+            cr.set_source_rgba(1, 1, 1, 0.7)
+            cr.arc(x, y, 5, 0, 6.2832)
+            cr.fill()
         if self.gaze:
             x, y, on = self.gaze
             cr.set_line_width(4)

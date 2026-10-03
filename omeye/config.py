@@ -40,14 +40,14 @@ class Config:
     calibration_points: int = 15
 
     # Focus switching.
-    dwell_ms: int = 400  # frames over this long vote on the window to focus
-    vote_share: float = 0.7  # share of those frames a window needs
+    dwell_ms: int = 400  # the likely window must stay confident this long
+    confidence: float = 0.8  # how sure omeye must be that you look at a window before focusing it
+    switch_rate: float = 1.5  # expected gaze moves between windows per second
     typing_grace_ms: int = 700  # no switching until this long after the last key/click
     mouse_grace_ms: int = 2000  # the mouse wins for this long after it moves
     cooldown_ms: int = 300  # minimum time between two switches
     lost_ms: int = 500  # face missing this long resets the gaze filter
     away_ms: int = 3000  # face missing this long: check only every 6th frame
-    margin_px: int = 50  # neighbours must be entered this far; the focused window keeps this much extra
     offscreen: float = 0.15  # gaze further outside the monitor than this (fraction) counts as looking away
 
     # Fixation filter on the gaze point (units: monitor widths).

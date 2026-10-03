@@ -8,7 +8,7 @@ import time
 from .activity import CursorWatch, InputActivity
 from .config import CALIBRATION_PATH, Config
 from .filters import FixationFilter
-from .focus import Vote, VoteParams, hit_test, on_screen
+from .focus import AWAY, Belief, BeliefParams, on_screen, window_chances
 from .hypr import Hypr, HyprError
 from .model import GazeModel
 from .overlay_client import OverlayProcess
@@ -79,7 +79,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     activity = InputActivity(cfg.typing_grace_ms)
     cursor = CursorWatch()
     fixation = FixationFilter(cfg.fixation_radius, cfg.fixation_confirm)
-    vote = Vote(VoteParams.from_config(cfg))
+    belief = Belief(BeliefParams.from_config(cfg))
+    sigma = max(model.error / 1.2533, 0.02)  # per-axis gaze error in monitor widths (mean radial error / sqrt(pi/2))
     overlay = OverlayProcess(model.monitor, "follow") if preview else None
     feed = CameraFeed(overlay, "corner") if overlay else None
     lost = cfg.lost_ms / 1000
@@ -105,7 +106,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     cam.close()
                     cam = open_camera(cfg, model, stop)
                     fixation.reset()
-                    vote.reset()
+                    belief.reset()
                     last_face = last_frame = time.monotonic()
                 continue
             last_frame = now
@@ -125,9 +126,10 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
 
             if sample is not None and sample.openness < model.blink:
                 continue  # blink: hold everything as it is
-            # Each frame's own point votes for a window; the fixation filter
-            # gives the steady point the preview shows.
-            target = gaze = None
+            # Each frame's own point, with the calibration's uncertainty, gives
+            # the chance of each window on screen; the belief combines frames.
+            # The fixation filter gives the steady point the preview shows.
+            chances = gaze = None
             if sample is not None:
                 stats["faces"] += 1
                 if now - last_face > lost:
@@ -135,12 +137,14 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 last_face = now
                 point = on_screen(model.predict_sample(sample), cfg.offscreen) if mon else None
                 if point:
-                    target = hit_test(layout.windows, *mon.to_global(*point), layout.focused, cfg.margin_px)
+                    chances = window_chances(layout.windows, *mon.to_global(*point), sigma * mon.w)
                     aspect = mon.h / mon.w
                     fx, fy = fixation(point[0], point[1] * aspect)
                     gaze = mon.to_global(fx, fy / aspect)
+            if chances is None:  # no face, or looking away
+                chances = {**{w.address: 0.0 for w in layout.windows}, AWAY: 1.0}
 
-            chosen = vote.step(now, target, layout.focused, activity.last(now), cursor.last_move)
+            chosen = belief.step(now, chances, layout.focused, activity.last(now), cursor.last_move)
             if chosen:
                 if dry_run:
                     log(f"would focus {chosen}")
@@ -154,20 +158,24 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                         log(f"focus: {e}")
 
             if overlay and mon:
+                # The ring sits on the centre of the most likely window; the
+                # small dot is the steady gaze estimate itself.
                 if gaze:
-                    on = hit_test(layout.windows, *gaze, layout.focused, cfg.margin_px) == layout.focused
-                    overlay.send(cmd="gaze", x=gaze[0] - mon.x, y=gaze[1] - mon.y, on=on)
+                    overlay.send(cmd="point", x=gaze[0] - mon.x, y=gaze[1] - mon.y)
+                else:
+                    overlay.send(cmd="point")
+                top, prob = belief.top()
+                win = next((w for w in layout.windows if w.address == top), None)
+                if win and prob >= 0.5:
+                    on = top == layout.focused
+                    overlay.send(cmd="gaze", x=win.x + win.w / 2 - mon.x, y=win.y + win.h / 2 - mon.y, on=on)
+                    overlay.send(cmd="rect", x=win.x - mon.x, y=win.y - mon.y, w=win.w, h=win.h,
+                                 label=f"{100 * prob:.0f}% likely", on=on)
                 else:
                     overlay.send(cmd="gaze")
-                leader, share = vote.leader()
-                win = next((w for w in layout.windows if w.address == leader), None)
-                if win:
-                    overlay.send(cmd="rect", x=win.x - mon.x, y=win.y - mon.y, w=win.w, h=win.h,
-                                 label=f"{100 * share:.0f}% of votes", on=leader == layout.focused)
-                else:
                     overlay.send(cmd="rect")
-                busy = ("typing" if now - activity.last(now) < vote.p.typing_grace
-                        else "mouse" if now - cursor.last_move < vote.p.mouse_grace else "")
+                busy = ("typing" if now - activity.last(now) < belief.p.typing_grace
+                        else "mouse" if now - cursor.last_move < belief.p.mouse_grace else "")
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))

@@ -1,23 +1,21 @@
-"""Which window the gaze is on, and when that becomes a focus change."""
+"""Which window you are most likely looking at, using the screen layout, and
+when that becomes a focus change.
 
-from collections import Counter, deque
+A predicted gaze point is uncertain by about the calibration's error, so it
+is treated as a Gaussian blob rather than a point. The share of the blob
+inside each window is the chance you are looking at that window (the
+topmost window owns any overlap; what falls outside every window is "away").
+A running belief over the windows combines these per-frame chances, assuming
+the gaze mostly stays where it was. Focus moves when another window's
+belief stays above `confidence` for `dwell` seconds.
+"""
+
+import math
 from dataclasses import dataclass
 
 from .hypr import Window
 
-
-def hit_test(windows: list[Window], x: float, y: float, focused: str | None, margin: float) -> str | None:
-    """Window under (x, y), topmost first.
-
-    Other windows count only `margin` inside their edges and the focused one
-    reaches `margin` beyond its own, so gaze jitter along a border can't flip
-    focus back and forth.
-    """
-    for w in windows:
-        m = -margin if w.address == focused else margin
-        if w.x + m <= x < w.x + w.w - m and w.y + m <= y < w.y + w.h - m:
-            return w.address
-    return None
+AWAY = None  # the belief's state for gaps, outside the windows, or no face
 
 
 def on_screen(point: tuple[float, float], offscreen: float) -> tuple[float, float] | None:
@@ -29,64 +27,109 @@ def on_screen(point: tuple[float, float], offscreen: float) -> tuple[float, floa
     return min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
 
 
+def _cdf(z: float) -> float:
+    return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+
+
+def window_chances(windows: list[Window], x: float, y: float, sigma: float) -> dict[str | None, float]:
+    """Chance that the gaze is in each window, for a predicted point (x, y)
+    with Gaussian error `sigma` per axis (all in pixels). Windows are topmost
+    first; AWAY gets the rest."""
+
+    def mass(x0: float, y0: float, x1: float, y1: float) -> float:
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return ((_cdf((x1 - x) / sigma) - _cdf((x0 - x) / sigma))
+                * (_cdf((y1 - y) / sigma) - _cdf((y0 - y) / sigma)))
+
+    chances: dict[str | None, float] = {}
+    above: list[tuple[float, float, float, float]] = []
+    for w in windows:
+        r = (w.x, w.y, w.x + w.w, w.y + w.h)
+        m = mass(*r)
+        for a in above:  # the part a window above covers belongs to that window
+            m -= mass(max(r[0], a[0]), max(r[1], a[1]), min(r[2], a[2]), min(r[3], a[3]))
+        chances[w.address] = max(m, 0.0)
+        above.append(r)
+    chances[AWAY] = max(1.0 - sum(chances.values()), 0.0)
+    return chances
+
+
 @dataclass
-class VoteParams:
-    window: float = 0.4  # seconds of frames that vote
-    share: float = 0.7  # a window needs this share of the votes to take focus
+class BeliefParams:
+    dwell: float = 0.4  # seconds the belief must stay confident
+    confidence: float = 0.8  # belief a window needs before focus moves
+    switch_rate: float = 1.5  # expected gaze moves between windows per second
+    temper: float = 0.5  # frames aren't independent (the error is mostly a steady offset): soften each one
     typing_grace: float = 0.7
     mouse_grace: float = 2.0
     cooldown: float = 0.3
 
     @classmethod
-    def from_config(cls, cfg) -> "VoteParams":
-        return cls(cfg.dwell_ms / 1000, cfg.vote_share, cfg.typing_grace_ms / 1000,
-                   cfg.mouse_grace_ms / 1000, cfg.cooldown_ms / 1000)
+    def from_config(cls, cfg) -> "BeliefParams":
+        return cls(cfg.dwell_ms / 1000, cfg.confidence, cfg.switch_rate, 0.5,
+                   cfg.typing_grace_ms / 1000, cfg.mouse_grace_ms / 1000, cfg.cooldown_ms / 1000)
 
 
-class Vote:
-    """Focus goes to the window that most frames looked at.
+class Belief:
+    """Running probability of which window you are looking at (a forward
+    filter over the windows on screen plus AWAY)."""
 
-    Every frame votes for the window under that frame's gaze point (None when
-    there is no face or the gaze is off the monitor). A window other than the
-    focused one takes focus when it holds `share` of the votes over a full
-    `window` of seconds. Typing (input within `typing_grace`), recent mouse
-    motion and the cooldown after a switch clear the votes.
-    """
+    FLOOR = 1e-3  # no single frame rules a window out completely
 
-    def __init__(self, p: VoteParams):
+    def __init__(self, p: BeliefParams):
         self.p = p
-        self.votes: deque = deque()
-        self.since: float | None = None
+        self.b: dict[str | None, float] = {}
+        self.last_t: float | None = None
+        self.candidate: str | None = None
+        self.since = 0.0
         self.blocked_until = 0.0
 
     def reset(self) -> None:
-        self.votes.clear()
-        self.since = None
+        self.b = {}
+        self.last_t = None
+        self.candidate = None
 
-    def leader(self) -> tuple[str | None, float]:
-        """The window with the most votes and its share of all votes."""
-        counts = Counter(t for _, t in self.votes if t is not None)
-        if not counts:
-            return None, 0.0
-        target, n = counts.most_common(1)[0]
-        return target, n / len(self.votes)
+    def observe(self, now: float, chances: dict[str | None, float]) -> None:
+        """One frame's evidence: chances from window_chances (or {AWAY: 1})
+        over the states on screen now."""
+        states = list(chances)
+        k = len(states)
+        dt = 1 / 30 if self.last_t is None else min(max(now - self.last_t, 0.0), 1.0)
+        self.last_t = now
+        h = 1 - math.exp(-self.p.switch_rate * dt) if self.b else 1.0  # chance the gaze moved since the last frame
+        post = {}
+        for s in states:
+            prior_s = self.b.get(s, 0.0)
+            prior = (1 - h) * prior_s + h * (1 - prior_s) / max(k - 1, 1) if k > 1 else 1.0
+            post[s] = prior * max(chances[s], self.FLOOR) ** self.p.temper
+        total = sum(post.values())
+        self.b = {s: v / total for s, v in post.items()}
 
-    def step(self, now: float, target: str | None, focused: str | None,
+    def top(self) -> tuple[str | None, float]:
+        """The most likely state and its probability."""
+        if not self.b:
+            return AWAY, 0.0
+        s = max(self.b, key=self.b.get)
+        return s, self.b[s]
+
+    def step(self, now: float, chances: dict[str | None, float], focused: str | None,
              last_input: float, last_mouse: float) -> str | None:
+        """Update with one frame and return a window to focus, or None."""
+        self.observe(now, chances)
         p = self.p
         if now - last_input < p.typing_grace or now - last_mouse < p.mouse_grace or now < self.blocked_until:
-            self.reset()
+            self.candidate = None
             return None
-        if self.since is None:
-            self.since = now
-        self.votes.append((now, target))
-        while self.votes[0][0] < now - p.window:
-            self.votes.popleft()
-        if now - self.since < p.window:
-            return None  # no full window of votes since the last reset
-        leader, share = self.leader()
-        if leader is None or leader == focused or share < p.share:
+        top, prob = self.top()
+        if top is AWAY or top == focused or prob < p.confidence:
+            self.candidate = None
             return None
-        self.reset()
+        if top != self.candidate:
+            self.candidate, self.since = top, now
+            return None
+        if now - self.since < p.dwell:
+            return None
+        self.candidate = None
         self.blocked_until = now + p.cooldown
-        return leader
+        return top
