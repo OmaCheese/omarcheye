@@ -22,6 +22,10 @@ os.environ.setdefault("OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT", "2")
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
+# OpenCV's own thread pool busy-waits between frames: with it, the colour
+# conversions cost well over a core of spinning at 30 fps for ~2 ms of work.
+cv2.setNumThreads(1)
+
 from .config import MODEL_PATH
 
 # Landmark indices. "A" is the eye on the image's left (the subject's right).

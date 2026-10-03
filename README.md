@@ -18,7 +18,7 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A fixation filter then holds the point still while your eyes rest: jitter within 6% of the screen width stays one fixation, and the point shows that fixation's median. It jumps only after three frames in a row land elsewhere and agree with each other, so a lone stray frame is ignored. Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
-6. **Switching.** A window other than the focused one takes focus when omeye has been at least 80% sure for 0.4 s; in tests with your calibration's error, that takes about 0.47 s after you look at it. A gaze on a border, or glancing back and forth, never switches. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself.
+6. **Switching.** A window other than the focused one takes focus when omeye has been at least 80% sure for 0.4 s; in tests with your calibration's error, that takes about 0.47 s after you look at it. A gaze on a border, or glancing back and forth, never switches. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
@@ -80,14 +80,16 @@ offscreen = 0.15         # further outside the monitor than this counts as looki
 
 ## Processor load
 
-Measured on a Ryzen 7 5800H at 30 frames per second (fps), 1280×720, with a test portrait replayed as the input:
+Measured on a Ryzen 7 5800H with the OnePlus 13 streaming 1920×1080 at 30 frames per second (fps) through Flux, face in view:
 
-| Where the model runs | Face in view | Nobody there |
+| Where the model runs | Time per frame | Processor use |
 |---|---|---|
-| central processing unit (CPU) | 9.7 ms per frame, 31% of one core | 8% |
-| integrated graphics processing unit (GPU), Radeon Vega | 9.7 ms per frame, 23% of one core | 8% |
+| central processing unit (CPU) | 9.2 ms | about 36% of one core |
+| integrated graphics processing unit (GPU), Radeon Vega (`delegate = "gpu"`) | 13.1 ms | about 40% of one core |
 
-After 3 s without a face, omeye checks only every sixth frame. The service runs at `Nice=10`.
+Before OpenCV was pinned to one thread (see Traps), the same runs used 170–190% of a core. After 3 s without a face, omeye checks only every sixth frame. The service runs at `Nice=10`.
+
+At 1080p the face is already larger than the 256-pixel crop MediaPipe's landmark model works on, so 1080p mostly costs conversion time; whether it steadies the landmarks is what `omeye bench` (look at one spot) measures.
 
 ## What the first calibration data showed
 
@@ -108,6 +110,7 @@ Up-down was weaker than left-right, and 5% of the frames landed off the screen. 
 - **MediaPipe was killed with SIGKILL at start-up.** `mediapipe` imports `sounddevice` for its audio tasks. Initialising PortAudio goes through the Advanced Linux Sound Architecture (ALSA) into PipeWire, whose realtime module leaves the process with a realtime CPU-time limit of 0, and the kernel kills it once inference starts. omeye has no audio, so `tracker.py` installs an empty `sounddevice` module before importing MediaPipe.
 - **The GPU delegate silently ran in software.** MediaPipe opens the first render node, which on this laptop is the NVIDIA card. Mesa can't drive that, so it fell back to `llvmpipe`. With `delegate = "gpu"`, omeye sets `DRI_PRIME` to the first non-NVIDIA Peripheral Component Interconnect (PCI) device (here `pci-0000_07_00_0`, the Radeon).
 - **A virtual camera only offers video while something feeds it.** The Flux camera is a v4l2loopback device. With no stream it accepts video in but offers none out, and OpenCV then can't open it. `tracker.py` asks each device what it can do (`VIDIOC_QUERYCAP`) and skips idle ones. When a stream stops, the next read blocks for OpenCV's default 10 s; `OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT=2` shortens that, because OpenCV doesn't support `CAP_PROP_READ_TIMEOUT_MSEC` for V4L2.
+- **OpenCV's thread pool burned more than a core.** Its worker threads busy-wait between frames, so ~2 ms of colour conversion per frame cost 140–170% of a core at 30 fps. `tracker.py` calls `cv2.setNumThreads(1)`.
 - **Hyprland 0.56 has Lua dispatchers.** Focus is `dispatch hl.dsp.focus({ window = "address:0x…" })` on the request socket. `hypr.py` falls back to the old `focuswindow` form on older releases.
 - **Overlay.** The calibration and preview overlay is a GTK 4 layer-shell surface. It needs the system Python (PyGObject) and `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`, so `overlay_client.py` starts it as a separate process and talks to it in lines of text on standard input and output.
 

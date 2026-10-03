@@ -8,10 +8,10 @@ JSON lines on stdin and events leave as JSON lines on stdout.
   follow mode:    transparent and click-through; draws the gaze point
 
 Commands: {"cmd": "text", "text": ...}, {"cmd": "dot", "x", "y", "ms"} (no x
-to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "grid",
+to hide), {"cmd": "gaze", "x", "y", "state"} (no x to hide), {"cmd": "grid",
 "cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
 {"cmd": "camera", "jpeg": base64, "caption", "place": "center" | "corner"}
-(no jpeg to hide), {"cmd": "rect", "x", "y", "w", "h", "label", "on"} (no x to
+(no jpeg to hide), {"cmd": "rect", "x", "y", "w", "h", "label", "state"} (no x to
 hide), {"cmd": "point", "x", "y"} (a small dot; no x to hide), {"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
@@ -37,6 +37,9 @@ from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
 # Still the simplest way to paint a JPEG with cairo; GTK 4 marks it deprecated.
 warnings.filterwarnings("ignore", "Gdk.cairo_set_source_pixbuf", DeprecationWarning)
 
+# focused window, sure enough to switch, only the likeliest
+STATE_RGBA = {"focused": (0.3, 0.85, 0.5, 0.85), "ready": (0.98, 0.78, 0.25, 0.85), "likely": (0.9, 0.9, 0.95, 0.6)}
+
 CSS = b"""
 window.omeye-calibrate { background: #111318; }
 window.omeye-follow { background: transparent; }
@@ -53,10 +56,10 @@ class Overlay(Gtk.ApplicationWindow):
         self.mode = mode
         self.text = ""
         self.dot = None  # (x, y, start, seconds)
-        self.gaze = None  # (x, y, on_target)
+        self.gaze = None  # (x, y, state)
         self.grid = None  # (cols, rows, fill per cell)
         self.camera = None  # (pixbuf, caption, place)
-        self.rect = None  # (x, y, w, h, label, on)
+        self.rect = None  # (x, y, w, h, label, state)
         self.point = None  # (x, y)
         self.add_css_class(f"omeye-{mode}")
 
@@ -113,12 +116,12 @@ class Overlay(Gtk.ApplicationWindow):
         elif cmd == "point":
             self.point = (msg["x"], msg["y"]) if "x" in msg else None
         elif cmd == "rect":
-            self.rect = (msg["x"], msg["y"], msg["w"], msg["h"], msg.get("label", ""), msg.get("on", False)) \
+            self.rect = (msg["x"], msg["y"], msg["w"], msg["h"], msg.get("label", ""), msg.get("state", "likely")) \
                 if "x" in msg else None
         elif cmd == "grid":
             self.grid = (msg["cols"], msg["rows"], msg["fill"]) if "cols" in msg else None
         elif cmd == "gaze":
-            self.gaze = (msg["x"], msg["y"], msg.get("on", False)) if "x" in msg else None
+            self.gaze = (msg["x"], msg["y"], msg.get("state", "likely")) if "x" in msg else None
         elif cmd == "quit":
             self.get_application().quit()
         self.area.queue_draw()
@@ -152,9 +155,9 @@ class Overlay(Gtk.ApplicationWindow):
             cr.arc(x, y, 3, 0, 6.2832)
             cr.fill()
         if self.rect:
-            x, y, w, h, label, on = self.rect
+            x, y, w, h, label, state = self.rect
             cr.set_line_width(4)
-            cr.set_source_rgba(0.3, 0.85, 0.5, 0.8) if on else cr.set_source_rgba(0.98, 0.78, 0.25, 0.8)
+            cr.set_source_rgba(*STATE_RGBA.get(state, STATE_RGBA["likely"]))
             cr.rectangle(x + 2, y + 2, w - 4, h - 4)
             cr.stroke()
             if label:
@@ -171,9 +174,9 @@ class Overlay(Gtk.ApplicationWindow):
             cr.arc(x, y, 5, 0, 6.2832)
             cr.fill()
         if self.gaze:
-            x, y, on = self.gaze
+            x, y, state = self.gaze
             cr.set_line_width(4)
-            cr.set_source_rgba(0.3, 0.85, 0.5, 0.85) if on else cr.set_source_rgba(0.98, 0.78, 0.25, 0.75)
+            cr.set_source_rgba(*STATE_RGBA.get(state, STATE_RGBA["likely"]))
             cr.arc(x, y, 26, 0, 6.2832)
             cr.stroke()
         if self.text:

@@ -40,6 +40,10 @@ class LayoutPoller:
                 log(f"layout: {e}")
 
 
+def new_stats() -> dict:
+    return {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0, "held_typing": 0, "held_mouse": 0}
+
+
 def open_camera(cfg: Config, model: GazeModel, stop: threading.Event) -> Camera | None:
     """The calibrated camera, once it sends video (a phone webcam may come and
     go). None if asked to stop first."""
@@ -90,7 +94,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     cam = open_camera(cfg, model, stop)
     last_face = last_frame = time.monotonic()
     frame_no = 0
-    stats = {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0}
+    stats = new_stats()
     stats_since = time.monotonic()
     try:
         while cam is not None and not stop.is_set():
@@ -145,10 +149,17 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 chances = {**{w.address: 0.0 for w in layout.windows}, AWAY: 1.0}
 
             chosen = belief.step(now, chances, layout.focused, activity.last(now), cursor.last_move)
+            top, prob = belief.top()
+            busy = ("typing" if now - activity.last(now) < belief.p.typing_grace
+                    else "mouse" if now - cursor.last_move < belief.p.mouse_grace else "")
+            ready = top is not AWAY and top != layout.focused and prob >= belief.p.confidence
+            if ready and busy:
+                stats[f"held_{busy}"] += 1
             if chosen:
-                if dry_run:
-                    log(f"would focus {chosen}")
-                else:
+                name = next((w.cls for w in layout.windows if w.address == chosen), chosen)
+                if verbose or dry_run:
+                    log(f"{'would focus' if dry_run else 'focus'} {name} ({100 * prob:.0f}% likely)")
+                if not dry_run:
                     try:
                         hypr.focus(chosen)
                         layout.focused = chosen
@@ -164,27 +175,29 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     overlay.send(cmd="point", x=gaze[0] - mon.x, y=gaze[1] - mon.y)
                 else:
                     overlay.send(cmd="point")
-                top, prob = belief.top()
+                # Colours say what the service would do: green = the focused
+                # window, amber = sure enough to switch, white = only likeliest.
                 win = next((w for w in layout.windows if w.address == top), None)
                 if win and prob >= 0.5:
-                    on = top == layout.focused
-                    overlay.send(cmd="gaze", x=win.x + win.w / 2 - mon.x, y=win.y + win.h / 2 - mon.y, on=on)
+                    state = "focused" if top == layout.focused else "ready" if ready else "likely"
+                    label = f"{100 * prob:.0f}% likely" + (f", held: {busy}" if ready and busy else "")
+                    overlay.send(cmd="gaze", x=win.x + win.w / 2 - mon.x, y=win.y + win.h / 2 - mon.y, state=state)
                     overlay.send(cmd="rect", x=win.x - mon.x, y=win.y - mon.y, w=win.w, h=win.h,
-                                 label=f"{100 * prob:.0f}% likely", on=on)
+                                 label=label, state=state)
                 else:
                     overlay.send(cmd="gaze")
                     overlay.send(cmd="rect")
-                busy = ("typing" if now - activity.last(now) < belief.p.typing_grace
-                        else "mouse" if now - cursor.last_move < belief.p.mouse_grace else "")
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))
 
             if verbose and now - stats_since >= STATS_EVERY:
                 n = max(stats["frames"], 1)
-                log(f"{n / (now - stats_since):.1f} fps, {1000 * stats['busy'] / n:.1f} ms/frame, "
-                    f"face {100 * stats['faces'] / n:.0f}%, {stats['switches']} switches")
-                stats = {"frames": 0, "faces": 0, "busy": 0.0, "switches": 0}
+                fps = n / (now - stats_since)
+                log(f"{fps:.1f} fps, {1000 * stats['busy'] / n:.1f} ms/frame, face {100 * stats['faces'] / n:.0f}%, "
+                    f"{stats['switches']} switches; a ready switch was held {stats['held_typing'] / fps:.1f} s "
+                    f"by typing, {stats['held_mouse'] / fps:.1f} s by the mouse")
+                stats = new_stats()
                 stats_since = now
         return 0
     finally:
