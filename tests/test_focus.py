@@ -76,11 +76,24 @@ def test_gaze_on_a_border_rarely_flips():
     assert len(flips) <= 6
 
 
-def test_glancing_back_and_forth_does_not_switch():
+def test_a_flick_of_the_eyes_does_not_switch():
     b = Belief(BeliefParams())
-    # 0.2 s on the other window, 0.4 s back, repeatedly
-    points = [(W * 0.75, H * 0.25)] * 6 + [(W * 0.25, H * 0.25)] * 12
+    # 2 frames (0.07 s) on the other window, 0.4 s back, repeatedly
+    points = [(W * 0.75, H * 0.25)] * 2 + [(W * 0.25, H * 0.25)] * 12
     assert look(b, 0, 4, points) == []
+
+
+def test_without_the_quick_path_a_glance_does_not_switch():
+    b = Belief(BeliefParams(quick=1.01))
+    points = [(W * 0.75, H * 0.25)] * 6 + [(W * 0.25, H * 0.25)] * 12  # 0.2 s glances
+    assert look(b, 0, 4, points) == []
+
+
+def test_looking_clearly_into_a_window_switches_quickly():
+    b = Belief(BeliefParams())
+    look(b, 0, 1, [(W * 0.25, H * 0.25)])
+    switches = look(b, 1, 3, [(W * 0.75, H * 0.75)])
+    assert switches and switches[0][0] - 1 < 0.2
 
 
 def test_typing_holds_switching_but_keeps_tracking():

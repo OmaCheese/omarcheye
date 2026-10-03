@@ -8,8 +8,8 @@ Status: version 0.5. It runs on lunar-gouda with a OnePlus 13 streamed through F
 
 ```
 webcam frame ─► face + iris landmarks ─► gaze features ─► point on screen ─► window ─► focus
-  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated       (chance of  (90% sure
-                 Landmarker, 478 points)   eye-direction       regression,       each window for 0.25 s)
+  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated       (chance of  (99%: now;
+                 Landmarker, 478 points)   eye-direction       regression,       each window 90%: 0.25 s)
                                            scores, head pose)  kept on screen)   in the layout)
 ```
 
@@ -18,7 +18,7 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
-6. **Switching.** A window other than the focused one takes focus when omeye has been at least 90% sure for 0.25 s; in tests with your calibration's error, that takes about 0.33 s after you look at it. Glancing back and forth doesn't switch, and staring at the border between two windows flips focus about three times a minute at most. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
+6. **Switching.** How long omeye waits depends on how sure it is. At 99% focus moves at once, which happens within a few frames when you look clearly into a window: about 0.1 s in simulation, 0.2 s replayed on real calibration data for side-by-side or 2×2 windows. Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about three times a minute. Windows stacked top and bottom stay slower (about 0.5 s on the replay): up-down is the weaker direction for a camera above the screen, so the evidence rarely reaches 99%. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
@@ -72,6 +72,7 @@ camera = "auto"          # or "/dev/video2", or part of the camera's name
 delegate = "cpu"         # "gpu" runs the landmark model on the integrated GPU
 dwell_ms = 250           # the likely window must stay confident this long
 confidence = 0.9         # how sure omeye must be before focus moves (higher: fewer flips on borders)
+quick_confidence = 0.99  # this sure, and focus moves after quick_ms (0) instead; 0.98 is faster, a little less safe
 switch_rate = 1.5        # expected gaze moves between windows per second (higher: follows faster, flips more)
 typing_grace_ms = 700    # no switching until this long after the last key
 mouse_grace_ms = 2000    # the mouse wins for this long after it moves
@@ -127,6 +128,8 @@ The calibration frames were replayed in order, each predicted by a fit that left
 | 70% of per-frame votes over 0.4 s (v0.2) | 93.6% | 89.5% | 87.9% | 0.30 s |
 | Belief, 80% for 0.4 s (v0.3) | 90.0% | 83.5% | 81.2% | 0.47 s |
 | Belief, 90% for 0.25 s (now) | 92.5% | 87.9% | 86.2% | 0.33 s |
+
+Replayed again on 1,288 frames (15 dots, 24 pointer cells) for the quick switch at 99%: top/bottom 0.53 s (unchanged), left/right 0.33 → 0.22 s, 2×2 0.37 → 0.23 s, with no more wrong switches than before.
 
 None of them switched to a wrong window. The shown point moved 2.1% of the width per frame raw, 1.1% with either the One Euro or the fixation filter, but in the first 0.5 s after the eyes moved the fixation filter was off by 12.5% against 7.4% for One Euro.
 

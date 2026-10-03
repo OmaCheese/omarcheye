@@ -42,6 +42,8 @@ class Config:
     # Focus switching.
     dwell_ms: int = 250  # the likely window must stay confident this long (the belief itself takes a few frames)
     confidence: float = 0.9  # how sure omeye must be that you look at a window before focusing it
+    quick_confidence: float = 0.99  # this sure, and focus moves after quick_ms instead
+    quick_ms: int = 0
     switch_rate: float = 1.5  # expected gaze moves between windows per second
     typing_grace_ms: int = 700  # no switching until this long after the last key/click
     mouse_grace_ms: int = 2000  # the mouse wins for this long after it moves

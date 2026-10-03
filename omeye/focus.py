@@ -7,7 +7,9 @@ inside each window is the chance you are looking at that window (the
 topmost window owns any overlap; what falls outside every window is "away").
 A running belief over the windows combines these per-frame chances, assuming
 the gaze mostly stays where it was. Focus moves when another window's
-belief stays above `confidence` for `dwell` seconds.
+belief stays above `confidence` for `dwell` seconds, or sooner when omeye is
+very sure: above `quick` for `quick_dwell` seconds. Looking clearly into a
+window gets there within a few frames; borders and weak evidence don't.
 """
 
 import math
@@ -59,6 +61,8 @@ def window_chances(windows: list[Window], x: float, y: float, sigma: float) -> d
 class BeliefParams:
     dwell: float = 0.25  # seconds the belief must stay confident
     confidence: float = 0.9  # belief a window needs before focus moves
+    quick: float = 0.99  # ... unless it is at least this sure:
+    quick_dwell: float = 0.0  # then this long is enough
     switch_rate: float = 1.5  # expected gaze moves between windows per second
     temper: float = 0.5  # frames aren't independent (the error is mostly a steady offset): soften each one
     typing_grace: float = 0.7
@@ -67,8 +71,8 @@ class BeliefParams:
 
     @classmethod
     def from_config(cls, cfg) -> "BeliefParams":
-        return cls(cfg.dwell_ms / 1000, cfg.confidence, cfg.switch_rate, 0.5,
-                   cfg.typing_grace_ms / 1000, cfg.mouse_grace_ms / 1000, cfg.cooldown_ms / 1000)
+        return cls(cfg.dwell_ms / 1000, cfg.confidence, cfg.quick_confidence, cfg.quick_ms / 1000, cfg.switch_rate,
+                   0.5, cfg.typing_grace_ms / 1000, cfg.mouse_grace_ms / 1000, cfg.cooldown_ms / 1000)
 
 
 class Belief:
@@ -83,6 +87,7 @@ class Belief:
         self.last_t: float | None = None
         self.candidate: str | None = None
         self.since = 0.0
+        self.sure_since: float | None = None  # when the candidate passed `quick`
         self.blocked_until = 0.0
 
     def reset(self) -> None:
@@ -119,17 +124,21 @@ class Belief:
         self.observe(now, chances)
         p = self.p
         if now - last_input < p.typing_grace or now - last_mouse < p.mouse_grace or now < self.blocked_until:
-            self.candidate = None
+            self.candidate = self.sure_since = None
             return None
         top, prob = self.top()
         if top is AWAY or top == focused or prob < p.confidence:
-            self.candidate = None
+            self.candidate = self.sure_since = None
             return None
         if top != self.candidate:
-            self.candidate, self.since = top, now
+            self.candidate, self.since, self.sure_since = top, now, None
+        if prob < p.quick:
+            self.sure_since = None
+        elif self.sure_since is None:
+            self.sure_since = now
+        sure = self.sure_since is not None and now - self.sure_since >= p.quick_dwell
+        if not sure and now - self.since < p.dwell:
             return None
-        if now - self.since < p.dwell:
-            return None
-        self.candidate = None
+        self.candidate = self.sure_since = None
         self.blocked_until = now + p.cooldown
         return top
