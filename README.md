@@ -9,8 +9,8 @@ Status: version 0.4. It runs on lunar-gouda with a OnePlus 13 streamed through F
 ```
 webcam frame ─► face + iris landmarks ─► gaze features ─► point on screen ─► window ─► focus
   (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated       (chance of  (90% sure
-                 Landmarker, 478 points)   eye-direction       regression,       each window for 0.4 s)
-                                           scores, head pose)  kept on screen)   in the layout) 0.25 s)
+                 Landmarker, 478 points)   eye-direction       regression,       each window for 0.25 s)
+                                           scores, head pose)  kept on screen)   in the layout)
 ```
 
 1. **Features.** Two sets are recorded, and calibration keeps whichever predicts better on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
