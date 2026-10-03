@@ -122,7 +122,7 @@ def _import_mediapipe():
     # mediapipe imports sounddevice for its audio tasks, and initialising
     # PortAudio goes through ALSA into PipeWire, whose realtime module leaves
     # this process with a realtime CPU-time limit of 0. The kernel then
-    # SIGKILLs it as soon as inference starts. omeye records no audio, so
+    # SIGKILLs it as soon as inference starts. omarcheye records no audio, so
     # mediapipe gets an empty sounddevice module.
     sys.modules.setdefault("sounddevice", types.ModuleType("sounddevice"))
     import mediapipe as mp
@@ -260,7 +260,7 @@ def pick_camera(spec: str, quiet: bool = False, cams: list[CameraInfo] | None = 
     elif spec != "auto":
         cam = next((c for c in cams if spec.lower() in c.name.lower()), None)
         if cam is None:
-            raise RuntimeError(f"no camera named like {spec!r}; `omeye cameras` lists them")
+            raise RuntimeError(f"no camera named like {spec!r}; `omarcheye cameras` lists them")
     else:
         live = [c for c in cams if c.live]
         idle = [c for c in cams if not c.live]
@@ -268,7 +268,7 @@ def pick_camera(spec: str, quiet: bool = False, cams: list[CameraInfo] | None = 
             raise RuntimeError(idle[0].not_live_reason() if idle else "no camera found")
         cam = next((c for c in live if not c.builtin), live[0])
         if cam.builtin and idle and not quiet:
-            print(f"omeye: {idle[0].not_live_reason()}; using {cam.name}", file=sys.stderr)
+            print(f"omarcheye: {idle[0].not_live_reason()}; using {cam.name}", file=sys.stderr)
     if not cam.live:
         raise RuntimeError(cam.not_live_reason())
     return cam

@@ -3,8 +3,8 @@ import base64
 import cv2
 import numpy as np
 
-from omeye.camview import caption, thumbnail
-from omeye.tracker import Sample
+from omarcheye.camview import caption, thumbnail
+from omarcheye.tracker import Sample
 
 
 def face_sample(pos=(0.5, 0.5), margin=0.2):

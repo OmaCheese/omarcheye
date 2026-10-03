@@ -22,7 +22,7 @@ from .camview import CameraFeed
 from .tracker import Camera, FaceTracker, framing_advice, pick_camera
 
 STATS_EVERY = 30.0
-CORRECT_S = 3.0  # moving focus yourself this soon after omeye did corrects it
+CORRECT_S = 3.0  # moving focus yourself this soon after omarcheye did corrects it
 # While you type (the pointer still), you are mostly looking at the window you
 # type into: every TYPED_GAP s, a second of typing makes a light record.
 TYPED_S, TYPED_GAP, TYPED_WEIGHT = 1.0, 4.0, 0.3
@@ -30,7 +30,7 @@ SAVE_EVERY = 60.0
 
 
 def log(msg: str) -> None:
-    print(f"omeye: {msg}", file=sys.stderr, flush=True)
+    print(f"omarcheye: {msg}", file=sys.stderr, flush=True)
 
 
 class LayoutPoller:
@@ -51,15 +51,15 @@ class LayoutPoller:
                 log(f"layout: {e}")
 
 
-OFF_SCREEN_HINT = "Most gaze estimates fall off the screen: sit as when you calibrated, or run omeye calibrate"
+OFF_SCREEN_HINT = "Most gaze estimates fall off the screen: sit as when you calibrated, or run omarcheye calibrate"
 
 
 @dataclass
 class Chain:
-    """omeye's last focus change and the retries that followed it."""
-    t: float  # when omeye last moved focus
+    """omarcheye's last focus change and the retries that followed it."""
+    t: float  # when omarcheye last moved focus
     raw: tuple[float, float]  # the raw gaze estimate behind it (monitor fractions)
-    tried: list[str]  # windows omeye focused, the current one last
+    tried: list[str]  # windows omarcheye focused, the current one last
     known: set[str] = field(default_factory=set)  # windows on screen at the time
     record: Record | None = None  # what the drift learned from this chain
 
@@ -106,7 +106,7 @@ def open_camera(cfg: Config, model: GazeModel, stop: threading.Event) -> Camera 
 
 def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool = False) -> int:
     if not CALIBRATION_PATH.exists():
-        log("not calibrated yet; run `omeye calibrate`")
+        log("not calibrated yet; run `omarcheye calibrate`")
         return 1
     model = load_model(CALIBRATION_PATH)
     hypr = Hypr()
@@ -245,9 +245,9 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 glance.disarm()  # using the window accepts it
             if chain and now - chain.t > CORRECT_S:
                 chain = None
-            # You moved focus yourself right after omeye did: it picked wrong,
+            # You moved focus yourself right after omarcheye did: it picked wrong,
             # and the window you chose is where you were looking. (The first
-            # half second is skipped: the layout may not show omeye's own move yet.)
+            # half second is skipped: the layout may not show omarcheye's own move yet.)
             if chain and not dry_run and now - chain.t > 0.5 and layout.focused not in (None, chain.tried[-1]):
                 win = find(layout, layout.focused, mon)
                 if win and layout.focused in chain.known and find(layout, chain.tried[-1]):
@@ -275,7 +275,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 saved = now
 
             if glance.update(now, raw) and chain and mon:
-                # A glance away and back: omeye picked wrong. Try the likeliest
+                # A glance away and back: omarcheye picked wrong. Try the likeliest
                 # window next to where you were looking that it hasn't tried.
                 x, y = mon.to_global(*drift.apply(*glance.spot))
                 nxt = runner_up(layout.windows, x, y, sigma * mon.w, chain.tried)
@@ -333,7 +333,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 if not advice and len(recent_off) > 30 and sum(recent_off) > 0.8 * len(recent_off):
                     advice = OFF_SCREEN_HINT
-                overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
+                overlay.send(cmd="text", text=f"omarcheye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))
 
             if verbose and now - stats_since >= STATS_EVERY:

@@ -81,15 +81,15 @@ class CameraFeed:
 
 
 def show(cfg: Config) -> int:
-    """omeye camera: the camera view in the middle of the screen until Ctrl+C."""
+    """omarcheye camera: the camera view in the middle of the screen until Ctrl+C."""
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}")
+        print(f"omarcheye: {e}")
         return 1
     layout = Hypr().layout()
     mon = (layout.monitor(cfg.monitor) if cfg.monitor else None) or next(m for m in layout.monitors if m.focused)
-    print(f"omeye: showing {info.name} ({info.device}) on {mon.name}; Ctrl+C to close")
+    print(f"omarcheye: showing {info.name} ({info.device}) on {mon.name}; Ctrl+C to close")
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

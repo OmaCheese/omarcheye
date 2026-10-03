@@ -7,11 +7,11 @@ inside each window is the chance you are looking at that window (the
 topmost window owns any overlap; what falls outside every window is "away").
 A running belief over the windows combines these per-frame chances, assuming
 the gaze mostly stays where it was. Focus moves when another window's
-belief stays above `confidence` for `dwell` seconds, or sooner when omeye is
+belief stays above `confidence` for `dwell` seconds, or sooner when omarcheye is
 very sure: above `quick` for `quick_dwell` seconds. Looking clearly into a
 window gets there within a few frames; borders and weak evidence don't.
 
-When omeye picks the wrong window, a quick glance away and back (Glance)
+When omarcheye picks the wrong window, a quick glance away and back (Glance)
 sends focus on to the runner-up: the likeliest window next to where you are
 looking, leaving out the ones already tried.
 """
@@ -163,7 +163,7 @@ class Belief:
 
 
 class Glance:
-    """After omeye moves focus, notices a quick look away and back: the sign
+    """After omarcheye moves focus, notices a quick look away and back: the sign
     that it picked the wrong window.
 
     Points are raw gaze estimates in monitor fractions (None: no face). While
@@ -172,7 +172,7 @@ class Glance:
     settling from the eye movement that led to the switch. Then a look counts
     as away once two frames in a row are `away` (monitor widths) from the
     anchor, or have no face; it counts as back once two frames are within `back`.
-    Away for longer than `longest` is a real move, and omeye switches as usual.
+    Away for longer than `longest` is a real move, and omarcheye switches as usual.
     Only a look up (at the camera) and back, or one without a face, is a
     glance: looking sideways or down at the keyboard isn't, and switching
     carries on at full speed meanwhile. Blinks never reach here. Typing or

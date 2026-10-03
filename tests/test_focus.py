@@ -1,7 +1,7 @@
 import numpy as np
 
-from omeye.focus import AWAY, Belief, BeliefParams, Glance, on_screen, runner_up, window_chances
-from omeye.hypr import Window
+from omarcheye.focus import AWAY, Belief, BeliefParams, Glance, on_screen, runner_up, window_chances
+from omarcheye.hypr import Window
 
 W, H = 3072, 1728  # the 4K monitor at scale 1.25, logical pixels
 GAP = 10

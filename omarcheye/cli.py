@@ -1,4 +1,4 @@
-"""omeye command line."""
+"""omarcheye command line."""
 
 import argparse
 import contextlib
@@ -22,7 +22,7 @@ def service_active() -> bool:
 
 def notify(cfg: config.Config, text: str) -> None:
     if cfg.notify and shutil.which("notify-send"):
-        subprocess.run(["notify-send", "-a", "omeye", "-i", "camera-web", "-t", "2000", "omeye", text])
+        subprocess.run(["notify-send", "-a", "omarcheye", "-i", "camera-web", "-t", "2000", "omarcheye", text])
 
 
 @contextlib.contextmanager
@@ -40,12 +40,12 @@ def camera_free():
 
 def cmd_on(cfg, args) -> int:
     if not CALIBRATION_PATH.exists():
-        print("omeye: not calibrated yet; run `omeye calibrate` first", file=sys.stderr)
-        notify(cfg, "Not calibrated yet: run omeye calibrate")
+        print("omarcheye: not calibrated yet; run `omarcheye calibrate` first", file=sys.stderr)
+        notify(cfg, "Not calibrated yet: run omarcheye calibrate")
         return 1
     r = systemctl("start", SERVICE)
     if r.returncode:
-        print(r.stderr.strip() or f"omeye: could not start {SERVICE}; run ./install.sh", file=sys.stderr)
+        print(r.stderr.strip() or f"omarcheye: could not start {SERVICE}; run ./install.sh", file=sys.stderr)
         return 1
     from .tracker import pick_camera
 
@@ -54,7 +54,7 @@ def cmd_on(cfg, args) -> int:
         pick_camera(camera if cfg.camera == "auto" else cfg.camera, quiet=True)
         notify(cfg, "Eye focus on")
     except RuntimeError as e:
-        print(f"omeye: on, waiting for the camera: {e}", file=sys.stderr)
+        print(f"omarcheye: on, waiting for the camera: {e}", file=sys.stderr)
         notify(cfg, f"Eye focus on, waiting for the camera: {e}")
     return 0
 
@@ -82,7 +82,7 @@ def cmd_status(cfg, args) -> int:
 
                 print(f"since then:  {Drift(d['aspect'], 0.05, c['created'], DRIFT_PATH).describe()}")
     else:
-        print("calibration: none (run `omeye calibrate`)")
+        print("calibration: none (run `omarcheye calibrate`)")
     from .tracker import pick_camera
 
     try:
@@ -171,13 +171,13 @@ def cmd_bench(cfg, args) -> int:
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}", file=sys.stderr)
+        print(f"omarcheye: {e}", file=sys.stderr)
         return 1
-    print("omeye: look at one spot on the screen until it finishes")
+    print("omarcheye: look at one spot on the screen until it finishes")
     with camera_free():
         tracker = FaceTracker(delegate=cfg.delegate)
         cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
-        print(f"omeye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
+        print(f"omarcheye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
               f"landmarks on {cfg.delegate.upper()}")
         times, faces, eyes, new_frames, last_sig = [], 0, [], 0, None
         cpu0, wall0 = time.process_time(), time.monotonic()
@@ -219,7 +219,7 @@ def cmd_bench(cfg, args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="omeye", description="Focus the Hyprland window you look at.")
+    ap = argparse.ArgumentParser(prog="omarcheye", description="Focus the Hyprland window you look at.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("on", help="start eye focus (systemd user service)")
     sub.add_parser("off", help="stop eye focus")
@@ -231,8 +231,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("refine", help="follow the mouse pointer with your eyes to improve the calibration")
     p.add_argument("--seconds", type=float, default=60, help="stop after this long (default 60)")
     sub.add_parser("test", help="look at 9 dots: how good the calibration is now, and which model does best")
-    sub.add_parser("recentre", help="look at one dot after sitting differently: omeye shifts its estimates to match")
-    p = sub.add_parser("preview", help="show where omeye thinks you look")
+    sub.add_parser("recentre", help="look at one dot after sitting differently: omarcheye shifts its estimates to match")
+    p = sub.add_parser("preview", help="show where omarcheye thinks you look")
     p.add_argument("--switch", action="store_true", help="also switch focus")
     p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")
     p.add_argument("--preview", action="store_true")

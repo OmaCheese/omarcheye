@@ -1,11 +1,11 @@
-"""omeye test: look at 9 dots to see how well the calibration does now.
+"""omarcheye test: look at 9 dots to see how well the calibration does now.
 
 Calibration scores itself on frames from the same sitting. This scores it
 later, in whatever posture you are in, which is what using it is like. It
 also fits every kind of model (basic and rich regressions, geometric) on the
 stored calibration samples and scores each on the same 9 dots; if another
 kind does clearly better, Enter switches to it. The test frames are kept in
-~/.local/state/omeye/tests/ (numbers only) for later analysis.
+~/.local/state/omarcheye/tests/ (numbers only) for later analysis.
 """
 
 import time
@@ -25,7 +25,7 @@ BETTER = 0.9  # another kind must beat the current one by 10% to be offered
 NAMES = {"basic": "basic features", "rich": "rich features", "geometric": "geometric model"}
 
 INTRO = (
-    "omeye test\n\n"
+    "omarcheye test\n\n"
     "Look at each dot until it shrinks away, sitting as you normally do.\n"
     "Nothing is changed unless you choose so at the end.\n\n"
     "Space: start      Esc: cancel"
@@ -34,18 +34,18 @@ INTRO = (
 
 def run(cfg: Config) -> int:
     if not CALIBRATION_PATH.exists():
-        print("omeye: not calibrated yet; run `omeye calibrate`")
+        print("omarcheye: not calibrated yet; run `omarcheye calibrate`")
         return 1
     current = load_model(CALIBRATION_PATH)
     hypr = Hypr()
     mon = hypr.layout().monitor(current.monitor)
     if mon is None:
-        print(f"omeye: calibrated monitor {current.monitor} is not connected")
+        print(f"omarcheye: calibrated monitor {current.monitor} is not connected")
         return 1
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}")
+        print(f"omarcheye: {e}")
         return 1
     screen_mm = hypr.physical_mm(mon.name)
 
@@ -85,25 +85,25 @@ def run(cfg: Config) -> int:
                          + ", ".join(f"{NAMES.get(m.kind, m.kind)} {100 * e:.1f}%" for e, m in scores))
             if scores[0][0] < BETTER * now:
                 best = scores[0]
-        print("omeye: " + "\nomeye: ".join(lines))
+        print("omarcheye: " + "\nomarcheye: ".join(lines))
         prompt = (f"\n\nEnter: switch to the {NAMES.get(best[1].kind, best[1].kind)}      any other key: keep"
                   if best else "\n\nPress any key")
-        ov.send(cmd="text", text="omeye test\n\n" + "\n".join(lines) + prompt)
+        ov.send(cmd="text", text="omarcheye test\n\n" + "\n".join(lines) + prompt)
         end = time.monotonic() + 30
         while time.monotonic() < end:
             key = check_keys(ov)
             if key is not None:
                 if best and key in ("Return", "KP_Enter"):
                     best[1].save(CALIBRATION_PATH)
-                    print(f"omeye: switched to the {NAMES.get(best[1].kind, best[1].kind)}")
+                    print(f"omarcheye: switched to the {NAMES.get(best[1].kind, best[1].kind)}")
                 break
             time.sleep(0.05)
         return 0
     except Cancelled:
-        print("omeye: test cancelled")
+        print("omarcheye: test cancelled")
         return 1
     except RuntimeError as e:
-        print(f"omeye: test failed: {e}")
+        print(f"omarcheye: test failed: {e}")
         ov.send(cmd="text", text=f"Test failed\n\n{e}")
         time.sleep(3)
         return 1

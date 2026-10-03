@@ -476,7 +476,7 @@ wheels = [
 ]
 
 [[package]]
-name = "omeye"
+name = "omarcheye"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

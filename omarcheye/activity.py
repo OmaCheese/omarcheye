@@ -10,7 +10,7 @@ from .config import IDLE_HELPER
 
 
 class InputActivity:
-    """Keyboard (and any other input) activity, from the omeye-idle helper.
+    """Keyboard (and any other input) activity, from the omarcheye-idle helper.
 
     The helper says "active" on input and "idle" once `grace_ms` pass without
     any, so last() is "now" while input keeps coming.
@@ -22,7 +22,7 @@ class InputActivity:
         self.last_input = -math.inf
         self.proc = None
         if not IDLE_HELPER.exists():
-            print(f"omeye: {IDLE_HELPER} not built (make); typing won't pause switching", file=sys.stderr)
+            print(f"omarcheye: {IDLE_HELPER} not built (make); typing won't pause switching", file=sys.stderr)
             return
         self.proc = subprocess.Popen([str(IDLE_HELPER), str(grace_ms)], stdout=subprocess.PIPE, text=True)
         threading.Thread(target=self._read, daemon=True).start()

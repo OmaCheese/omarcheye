@@ -1,11 +1,11 @@
 #!/bin/bash
-# Set omeye up on this machine: Python environment, face model, input helper,
-# the `omeye` command in ~/.local/bin and the systemd user service.
+# Set omarcheye up on this machine: Python environment, face model, input helper,
+# the `omarcheye` command in ~/.local/bin and the systemd user service.
 # Safe to re-run after a `git pull`.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-data=${XDG_DATA_HOME:-$HOME/.local/share}/omeye
+data=${XDG_DATA_HOME:-$HOME/.local/share}/omarcheye
 units=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 model_url=https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
 
@@ -33,13 +33,13 @@ fi
 say "Input-activity helper"
 make -C "$root" --quiet
 
-say "omeye command"
+say "omarcheye command"
 mkdir -p "$HOME/.local/bin"
-ln -sfn "$root/bin/omeye" "$HOME/.local/bin/omeye"
+ln -sfn "$root/bin/omarcheye" "$HOME/.local/bin/omarcheye"
 
 say "systemd user service"
 mkdir -p "$units"
-sed "s|@ROOT@|$root|g" "$root/systemd/omeye.service" >"$units/omeye.service"
+sed "s|@ROOT@|$root|g" "$root/systemd/omarcheye.service" >"$units/omarcheye.service"
 systemctl --user daemon-reload
 
-say "Done. Next: omeye calibrate, then omeye on (or your toggle key)"
+say "Done. Next: omarcheye calibrate, then omarcheye on (or your toggle key)"

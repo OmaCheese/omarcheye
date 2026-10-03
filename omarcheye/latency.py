@@ -1,8 +1,8 @@
-"""omeye latency: how long the camera takes to show omeye what happens.
+"""omarcheye latency: how long the camera takes to show omarcheye what happens.
 
 The screen flashes white a few times; the light falls on your face (and the
-room), and omeye times how long until a camera frame shows it brighter. That
-is the camera's latency as omeye sees it: exposure, the phone's encoding and
+room), and omarcheye times how long until a camera frame shows it brighter. That
+is the camera's latency as omarcheye sees it: exposure, the phone's encoding and
 the stream for Flux, decoding, and reading the frame. Sit in front of the
 camera; a dark room shows the flashes best. The time counts from when the
 overlay drew the flash, so it includes the monitor's own delay (a refresh or two).
@@ -45,7 +45,7 @@ def run(cfg: Config) -> int:
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}")
+        print(f"omarcheye: {e}")
         return 1
     hypr = Hypr()
     mon = next((m for m in hypr.layout().monitors if m.focused), None)
@@ -53,7 +53,7 @@ def run(cfg: Config) -> int:
     ov = OverlayProcess(mon.name, "calibrate")
     try:
         ov.wait_for("ready", 8)
-        ov.send(cmd="text", text=f"omeye latency\n\nKeep your face in view of {info.name}.\n"
+        ov.send(cmd="text", text=f"omarcheye latency\n\nKeep your face in view of {info.name}.\n"
                                  f"The screen flashes white {FLASHES} times.\n\nEsc: cancel")
         times, light, painted = [], [], []
         # (seconds from the start, level): dark, then flashes at irregular times
@@ -101,18 +101,18 @@ def run(cfg: Config) -> int:
             ms = 1000 * np.array(found)
             text = (f"Camera latency {np.median(ms):.0f} ms (median of {len(found)} edges, "
                     f"{np.min(ms):.0f}–{np.max(ms):.0f} ms), {fps:.1f} frames per second from {info.name}")
-        print(f"omeye: {text}")
+        print(f"omarcheye: {text}")
         ov.send(cmd="fill", level=0)
-        ov.send(cmd="text", text=f"omeye latency\n\n{text}\n\nPress any key")
+        ov.send(cmd="text", text=f"omarcheye latency\n\n{text}\n\nPress any key")
         end = time.monotonic() + 8
         while time.monotonic() < end and check_keys(ov) is None:
             time.sleep(0.05)
         return 0
     except Cancelled:
-        print("omeye: latency test cancelled")
+        print("omarcheye: latency test cancelled")
         return 1
     except RuntimeError as e:
-        print(f"omeye: latency test failed: {e}")
+        print(f"omarcheye: latency test failed: {e}")
         return 1
     finally:
         ov.close()

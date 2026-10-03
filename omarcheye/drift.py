@@ -1,16 +1,16 @@
 """How far the gaze estimate has shifted since calibration, learned while
-omeye runs.
+omarcheye runs.
 
 Sitting differently moves every estimate by about the same amount. In a later
 sitting the calibration was off by 19% of the screen width; one shift, the
 same for every dot, explained all of it but 4.7%, which is as good as the
-calibration was in its own sitting. Learning that shift is what keeps omeye
+calibration was in its own sitting. Learning that shift is what keeps omarcheye
 from picking the neighbouring window.
 
-omeye records the raw estimate whenever it is clear which window you were
+omarcheye records the raw estimate whenever it is clear which window you were
 looking at: you sent focus on with a glance (a retry), or moved it yourself
-right after omeye moved it; and, as a lighter record, while you type into a
-window (you mostly look at it). `omeye recentre` records one dot, heavily.
+right after omarcheye moved it; and, as a lighter record, while you type into a
+window (you mostly look at it). `omarcheye recentre` records one dot, heavily.
 The shift is the smallest one that puts each
 recorded estimate well inside its window (a margin of the calibration's error
 from the edges), recent records counting most. Positions are monitor fractions;

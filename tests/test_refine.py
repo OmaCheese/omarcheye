@@ -2,10 +2,10 @@ import types
 
 import numpy as np
 
-from omeye import refine, samples
-from omeye.hypr import Monitor
-from omeye.model import MOUSE, fit_samples
-from omeye.tracker import RICH, Sample
+from omarcheye import refine, samples
+from omarcheye.hypr import Monitor
+from omarcheye.model import MOUSE, fit_samples
+from omarcheye.tracker import RICH, Sample
 
 
 def test_pointer_still():

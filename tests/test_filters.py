@@ -1,6 +1,6 @@
 import numpy as np
 
-from omeye.filters import OneEuro2D
+from omarcheye.filters import OneEuro2D
 
 
 def test_one_euro_calms_jitter_and_follows_jumps():

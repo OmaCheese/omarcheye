@@ -1,6 +1,6 @@
 import numpy as np
 
-from omeye.drift import MAX_SHIFT, Drift
+from omarcheye.drift import MAX_SHIFT, Drift
 
 ASPECT = 9 / 16
 MARGIN = 0.066  # about the calibration's error, monitor widths
@@ -22,7 +22,7 @@ def test_one_correction_moves_the_estimate_well_inside_the_window():
 
 def test_corrections_from_many_windows_find_a_steady_shift():
     # The estimate sits 16% of the width left of and 9% (of the width) above
-    # where you look, as in the later sitting; you correct omeye in a few windows.
+    # where you look, as in the later sitting; you correct omarcheye in a few windows.
     rng = np.random.default_rng(0)
     true = np.array([-0.16, -0.09 / ASPECT])
     d = Drift(ASPECT, MARGIN)
@@ -31,7 +31,7 @@ def test_corrections_from_many_windows_find_a_steady_shift():
         look = np.array([rng.uniform(rect[0], rect[2]), rng.uniform(rect[1], rect[3])])
         raw = look + true + rng.normal(0, 0.02, 2)
         x, y = d.apply(*raw)
-        if not inside(rect, x, y):  # omeye would pick wrong: you correct it
+        if not inside(rect, x, y):  # omarcheye would pick wrong: you correct it
             d.add(*raw, rect)
     hits = 0
     for _ in range(200):

@@ -1,4 +1,4 @@
-from omeye.hypr import parse_layout, parse_monitors
+from omarcheye.hypr import parse_layout, parse_monitors
 
 
 def monitor(name, x, ws, scale=1.0, transform=0, special=0, focused=False):

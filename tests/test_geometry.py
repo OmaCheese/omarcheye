@@ -6,9 +6,9 @@ import math
 
 import numpy as np
 
-from omeye import geometry
-from omeye.model import data_error, fit_samples
-from omeye.tracker import RICH, head_pose
+from omarcheye import geometry
+from omarcheye.model import data_error, fit_samples
+from omarcheye.tracker import RICH, head_pose
 
 SCREEN = (700.0, 390.0)
 TRUE = np.array([2.6, -2.2, 0.0, 0.04, -0.03, math.log(1.4), 0.12, 0.0, 15.0, 25.0])  # kx ky kl ox oy log_s tilt pan dx lift
@@ -92,7 +92,7 @@ def test_fit_samples_picks_geometry_when_poses_are_known(tmp_path):
     model, used, frames, errors = fit_samples(data, SCREEN[1] / SCREEN[0], "TEST-1", "cam", screen_mm=SCREEN)
     assert set(errors) == {"basic", "rich", "geometric"}
     model.save(tmp_path / "cal.json")
-    from omeye.model import load_model
+    from omarcheye.model import load_model
 
     again = load_model(tmp_path / "cal.json")
     assert again.kind == model.kind

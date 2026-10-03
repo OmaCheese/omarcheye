@@ -1,4 +1,4 @@
-"""omeye refine: follow the mouse pointer with your eyes. Frames taken while
+"""omarcheye refine: follow the mouse pointer with your eyes. Frames taken while
 the pointer rests are added to the calibration samples, and the model is
 refitted on everything.
 
@@ -30,7 +30,7 @@ STILL_FRAC = 0.02  # ... within this share of the monitor width
 MIN_CELLS = 8
 
 INTRO = (
-    "omeye refine\n\n"
+    "omarcheye refine\n\n"
     "Move the mouse slowly over the whole screen and keep your eyes on the pointer.\n"
     "Rest it here and there: frames count while the pointer is nearly still.\n"
     "Cells turn green as they fill.\n\n"
@@ -102,18 +102,18 @@ def run(cfg: Config, seconds: float = 60) -> int:
     name = (previous.monitor if previous else "") or cfg.monitor
     mon = layout.monitor(name) if name else next((m for m in layout.monitors if m.focused), None)
     if mon is None:
-        print(f"omeye: monitor {name!r} not found")
+        print(f"omarcheye: monitor {name!r} not found")
         return 1
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}")
+        print(f"omarcheye: {e}")
         return 1
     if previous and previous.camera and previous.camera != info.name:
-        print(f"omeye: the calibration is for {previous.camera!r}, not {info.name!r}; starting a new one")
+        print(f"omarcheye: the calibration is for {previous.camera!r}, not {info.name!r}; starting a new one")
         previous = None
     stored = samples.load(info.name, mon.name)
-    print(f"omeye: refining {mon.name} with {info.name}"
+    print(f"omarcheye: refining {mon.name} with {info.name}"
           + (f" ({len(stored['groups'])} stored samples)" if stored else " (no stored samples)"))
 
     tracker = FaceTracker(delegate=cfg.delegate)
@@ -150,17 +150,17 @@ def run(cfg: Config, seconds: float = 60) -> int:
             title = "Calibration refined"
             text = (f"Typical error {line}" + (f", was {100 * before:.0f}%" if before is not None else "")
                     + f"\n{len(used)} dots and cells, {n_frames} frames\n{compare(errors, model.kind)}")
-        print(f"omeye: {title}. {text}".replace("\n", "; "))
+        print(f"omarcheye: {title}. {text}".replace("\n", "; "))
         ov.send(cmd="text", text=f"{title}\n\n{text}\n\nPress any key")
         end = time.monotonic() + 8
         while time.monotonic() < end and check_keys(ov) is None:
             time.sleep(0.05)
         return 0
     except Cancelled:
-        print("omeye: refine cancelled; calibration unchanged")
+        print("omarcheye: refine cancelled; calibration unchanged")
         return 1
     except RuntimeError as e:
-        print(f"omeye: refine failed: {e}")
+        print(f"omarcheye: refine failed: {e}")
         ov.send(cmd="text", text=f"Refine failed\n\n{e}")
         time.sleep(3)
         return 1

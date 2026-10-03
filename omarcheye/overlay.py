@@ -1,6 +1,6 @@
 """Full-monitor layer-shell overlay drawn with GTK 4.
 
-Runs under the system Python, which has PyGObject; omeye's own environment
+Runs under the system Python, which has PyGObject; omarcheye's own environment
 starts it through OverlayProcess (overlay_client.py). Commands arrive as
 JSON lines on stdin and events leave as JSON lines on stdout.
 
@@ -44,8 +44,8 @@ warnings.filterwarnings("ignore", "Gdk.cairo_set_source_pixbuf", DeprecationWarn
 STATE_RGBA = {"focused": (0.3, 0.85, 0.5, 0.85), "ready": (0.98, 0.78, 0.25, 0.85), "likely": (0.9, 0.9, 0.95, 0.6)}
 
 CSS = b"""
-window.omeye-calibrate { background: #111318; }
-window.omeye-follow { background: transparent; }
+window.omarcheye-calibrate { background: #111318; }
+window.omarcheye-follow { background: transparent; }
 """
 
 
@@ -64,12 +64,12 @@ class Overlay(Gtk.ApplicationWindow):
         self.camera = None  # (pixbuf, caption, place)
         self.rect = None  # (x, y, w, h, label, state)
         self.point = None  # (x, y)
-        self.fill = 0.0  # 0..1: the whole monitor grey to white (omeye latency)
+        self.fill = 0.0  # 0..1: the whole monitor grey to white (omarcheye latency)
         self.fill_changed = False
-        self.add_css_class(f"omeye-{mode}")
+        self.add_css_class(f"omarcheye-{mode}")
 
         LayerShell.init_for_window(self)
-        LayerShell.set_namespace(self, "omeye")
+        LayerShell.set_namespace(self, "omarcheye")
         LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
         for edge in (LayerShell.Edge.TOP, LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
             LayerShell.set_anchor(self, edge, True)
@@ -254,11 +254,11 @@ def main() -> None:
     ap.add_argument("--mode", choices=("calibrate", "follow"), default="calibrate")
     args = ap.parse_args()
 
-    # Ctrl+C in the terminal reaches this process too; omeye closes the
+    # Ctrl+C in the terminal reaches this process too; omarcheye closes the
     # overlay itself (stdin ends), so ignore it instead of dying with a traceback.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     if not LayerShell.is_supported():
-        print("omeye overlay: layer shell unsupported (is LD_PRELOAD set?)", file=sys.stderr)
+        print("omarcheye overlay: layer shell unsupported (is LD_PRELOAD set?)", file=sys.stderr)
         sys.exit(1)
 
     provider = Gtk.CssProvider()

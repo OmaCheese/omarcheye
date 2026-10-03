@@ -1,7 +1,7 @@
 import numpy as np
 
-from omeye.model import GazeModel, fit, fit_samples, inliers
-from omeye.tracker import RICH
+from omarcheye.model import GazeModel, fit, fit_samples, inliers
+from omarcheye.tracker import RICH
 
 
 def synthetic(n_dots=15, frames=25, noise=0.002, seed=1):
@@ -90,7 +90,7 @@ def test_a_head_held_still_during_calibration_does_not_throw_predictions_off():
 def test_choose_prefers_geometry_within_the_margin():
     from types import SimpleNamespace
 
-    from omeye.model import choose
+    from omarcheye.model import choose
 
     basic, geo = SimpleNamespace(kind="basic", error=0.077), SimpleNamespace(kind="geometric", error=0.083)
     assert choose([basic, geo]) is geo

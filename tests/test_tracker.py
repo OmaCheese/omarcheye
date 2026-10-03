@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from omeye.tracker import BLEND, BUILT_IN, RICH, eye_detail, eye_features, features, head_pose
+from omarcheye.tracker import BLEND, BUILT_IN, RICH, eye_detail, eye_features, features, head_pose
 
 
 def eye(center=(100.0, 50.0), width=40.0, iris=(0.0, 0.0), roll=0.0, gap=10.0):
@@ -47,7 +47,7 @@ def test_built_in_camera_names():
 
 
 def cams(phone_live: bool):
-    from omeye.tracker import CameraInfo
+    from omarcheye.tracker import CameraInfo
 
     return [
         CameraInfo("/dev/video0", "HP Wide Vision HD Camera: HP Wi", True, False, True),
@@ -56,13 +56,13 @@ def cams(phone_live: bool):
 
 
 def test_auto_prefers_a_live_phone_camera():
-    from omeye.tracker import pick_camera
+    from omarcheye.tracker import pick_camera
 
     assert pick_camera("auto", quiet=True, cams=cams(True)).device == "/dev/video2"
 
 
 def test_auto_skips_an_idle_virtual_camera():
-    from omeye.tracker import pick_camera
+    from omarcheye.tracker import pick_camera
 
     assert pick_camera("auto", quiet=True, cams=cams(False)).device == "/dev/video0"
 
@@ -70,7 +70,7 @@ def test_auto_skips_an_idle_virtual_camera():
 def test_named_idle_camera_explains_itself():
     import pytest
 
-    from omeye.tracker import pick_camera
+    from omarcheye.tracker import pick_camera
 
     with pytest.raises(RuntimeError, match="nothing is feeding it.*Flux"):
         pick_camera("Flux Camera", cams=cams(False))
@@ -79,7 +79,7 @@ def test_named_idle_camera_explains_itself():
 
 
 def test_framing_advice():
-    from omeye.tracker import framing_advice
+    from omarcheye.tracker import framing_advice
 
     assert "tilt the camera up" in framing_advice((0.57, 0.07), -0.1)
     assert "tilt the camera down" in framing_advice((0.5, 0.8), 0.05)

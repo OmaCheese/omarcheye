@@ -128,7 +128,7 @@ class GazeModel:
     def load(cls, path: Path) -> "GazeModel":
         data = json.loads(path.read_text())
         if data.pop("features", None) != list(KINDS.get(data.get("kind", "basic"), ())):
-            raise ValueError(f"{path} was made by another omeye version; run `omeye calibrate` again")
+            raise ValueError(f"{path} was made by another omarcheye version; run `omarcheye calibrate` again")
         for k in ("mean", "std", "coef", "intercept", "lo", "hi"):
             if data.get(k) is not None:
                 data[k] = np.array(data[k])
@@ -136,7 +136,7 @@ class GazeModel:
 
 
 MIN_FRAMES = 8  # a dot or cell with fewer usable frames is left out
-MOUSE = 1000  # group ids from here up are pointer cells (omeye refine); below are dots
+MOUSE = 1000  # group ids from here up are pointer cells (omarcheye refine); below are dots
 
 
 def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,

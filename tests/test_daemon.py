@@ -4,9 +4,9 @@ import math
 import types
 from dataclasses import dataclass
 
-from omeye import daemon
-from omeye.config import Config
-from omeye.hypr import Layout, Monitor, Window
+from omarcheye import daemon
+from omarcheye.config import Config
+from omarcheye.hypr import Layout, Monitor, Window
 
 W, H = 3072, 1728
 COLS = [Window(f"0x{i}", i * W / 4 + 10, 47, W / 4 - 20, H - 57, False, i, f"app{i}") for i in range(4)]
@@ -117,9 +117,9 @@ def at(win: int, seconds: float, y: float = 0.5) -> list[Look]:
 
 def test_a_glance_retries_and_the_shift_is_learned(monkeypatch, tmp_path):
     frames = (at(1, 0.8)  # look at column 1; the estimate sits in column 0, which has focus: nothing happens
-              + at(2, 0.8)  # column 2: the estimate is in column 1, so omeye focuses column 1 (wrong)
+              + at(2, 0.8)  # column 2: the estimate is in column 1, so omarcheye focuses column 1 (wrong)
               + [Look(0.62, -0.4)] * 9  # glance up at the camera ...
-              + at(2, 1.5)  # ... and back: omeye retries
+              + at(2, 1.5)  # ... and back: omarcheye retries
               + at(0, 1.5)  # column 0 (the estimate is off the screen's left edge, clamped into column 0)
               + at(3, 1.5))  # column 3: with the shift learned, straight to the right one
     hypr, logs = run_script(monkeypatch, tmp_path, frames)
@@ -132,7 +132,7 @@ def test_a_glance_retries_and_the_shift_is_learned(monkeypatch, tmp_path):
 
 def test_moving_focus_yourself_right_after_a_switch_teaches_the_shift(monkeypatch, tmp_path):
     def super_right(i, hypr):
-        if i == 45:  # 1.5 s in, omeye has focused column 1; you wanted column 2
+        if i == 45:  # 1.5 s in, omarcheye has focused column 1; you wanted column 2
             hypr.focused = "0x2"
 
     hypr, logs = run_script(monkeypatch, tmp_path, at(2, 3.0) + at(3, 1.5), super_right)

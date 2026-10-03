@@ -1,5 +1,5 @@
-// omeye-idle: print "active" when keyboard or mouse input arrives and "idle"
-// after <timeout_ms> without input. omeye reads this on stdout to pause gaze
+// omarcheye-idle: print "active" when keyboard or mouse input arrives and "idle"
+// after <timeout_ms> without input. omarcheye reads this on stdout to pause gaze
 // focus while you type. Uses ext-idle-notify-v1 (no access to /dev/input
 // needed); version 2's input-idle request ignores idle inhibitors, so a
 // playing video does not make every moment look like typing.
@@ -48,21 +48,21 @@ static const struct ext_idle_notification_v1_listener notification_listener = {
 int main(int argc, char **argv) {
 	long timeout_ms = argc > 1 ? strtol(argv[1], NULL, 10) : 700;
 	if (timeout_ms <= 0) {
-		fprintf(stderr, "usage: omeye-idle [timeout_ms]\n");
+		fprintf(stderr, "usage: omarcheye-idle [timeout_ms]\n");
 		return 2;
 	}
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
 
 	struct wl_display *display = wl_display_connect(NULL);
 	if (!display) {
-		fprintf(stderr, "omeye-idle: cannot connect to the Wayland display\n");
+		fprintf(stderr, "omarcheye-idle: cannot connect to the Wayland display\n");
 		return 1;
 	}
 	struct wl_registry *registry = wl_display_get_registry(display);
 	wl_registry_add_listener(registry, &registry_listener, NULL);
 	wl_display_roundtrip(display);
 	if (!seat || !notifier) {
-		fprintf(stderr, "omeye-idle: compositor has no ext-idle-notify-v1\n");
+		fprintf(stderr, "omarcheye-idle: compositor has no ext-idle-notify-v1\n");
 		return 1;
 	}
 
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 		? ext_idle_notifier_v1_get_input_idle_notification(notifier, timeout_ms, seat)
 		: ext_idle_notifier_v1_get_idle_notification(notifier, timeout_ms, seat);
 	ext_idle_notification_v1_add_listener(notification, &notification_listener, NULL);
-	fprintf(stderr, "omeye-idle: protocol v%u (%s), %ld ms\n", notifier_version,
+	fprintf(stderr, "omarcheye-idle: protocol v%u (%s), %ld ms\n", notifier_version,
 	        notifier_version >= 2 ? "input idle" : "plain idle", timeout_ms);
 	say("active");
 

@@ -1,6 +1,6 @@
 """The raw calibration samples behind the current calibration: gaze features
-and where you were looking, numbers only (no images). `omeye calibrate`
-starts them afresh; `omeye refine` adds to them and refits."""
+and where you were looking, numbers only (no images). `omarcheye calibrate`
+starts them afresh; `omarcheye refine` adds to them and refits."""
 
 import numpy as np
 
@@ -17,7 +17,7 @@ def load(camera: str, monitor: str) -> dict | None:
         if "camera" not in d or str(d["camera"]) != camera or str(d["monitor"]) != monitor:
             return None
         if any(k not in d for k in KEYS):
-            return None  # from an older omeye: start afresh
+            return None  # from an older omarcheye: start afresh
         return {k: d[k] for k in KEYS}
 
 

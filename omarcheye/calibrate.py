@@ -1,4 +1,4 @@
-"""omeye calibrate: show dots, record gaze features per dot, fit, save."""
+"""omarcheye calibrate: show dots, record gaze features per dot, fit, save."""
 
 import random
 import time
@@ -19,7 +19,7 @@ MIN_DOTS = 8
 POOR = 0.15  # cross-validated error above this share of the screen width: warn
 
 INTRO = (
-    "omeye calibration\n\n"
+    "omarcheye calibration\n\n"
     "Look at each dot until it shrinks away.\n"
     "Move your head as you normally would.\n\n"
     "Space: start      Esc: cancel"
@@ -125,17 +125,17 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
     name = monitor or cfg.monitor
     mon = layout.monitor(name) if name else next((m for m in layout.monitors if m.focused), None)
     if mon is None:
-        print(f"omeye: monitor {name!r} not found")
+        print(f"omarcheye: monitor {name!r} not found")
         return 1
     mm = next((m.get("physicalWidth", 0) for m in hypr.json("monitors") if m["name"] == mon.name), 0)
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
-        print(f"omeye: {e}")
+        print(f"omarcheye: {e}")
         return 1
     idle = [c for c in list_cameras() if not c.live]
     note = idle[0].not_live_reason() if info.builtin and idle else ""
-    print(f"omeye: calibrating {mon.name} with {info.name} ({info.device})")
+    print(f"omarcheye: calibrating {mon.name} with {info.name} ({info.device})")
 
     tracker = FaceTracker(delegate=cfg.delegate)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
@@ -175,17 +175,17 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
             title, summary = "Calibration is poor: eye focus will jump around", f"{summary}\n\n{why}"
         else:
             title = "Calibrated"
-        print(f"omeye: {title}. {summary}".replace("\n\n", ". ") + f"; saved {CALIBRATION_PATH}")
+        print(f"omarcheye: {title}. {summary}".replace("\n\n", ". ") + f"; saved {CALIBRATION_PATH}")
         ov.send(cmd="text", text=f"{title}\n\n{summary}\n\nPress any key")
         end = time.monotonic() + 6
         while time.monotonic() < end and check_keys(ov) is None:
             time.sleep(0.05)
         return 0
     except Cancelled:
-        print("omeye: calibration cancelled")
+        print("omarcheye: calibration cancelled")
         return 1
     except RuntimeError as e:
-        print(f"omeye: calibration failed: {e}")
+        print(f"omarcheye: calibration failed: {e}")
         ov.send(cmd="text", text=f"Calibration failed\n\n{e}")
         time.sleep(3)
         return 1

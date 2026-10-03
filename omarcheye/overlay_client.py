@@ -22,7 +22,7 @@ class OverlayProcess:
         # for HDMI here): drawn on the Radeon, its transparent surface comes out black.
         env.pop("DRI_PRIME", None)
         self.proc = subprocess.Popen(
-            [SYSTEM_PYTHON, "-m", "omeye.overlay", "--monitor", monitor, "--mode", mode],
+            [SYSTEM_PYTHON, "-m", "omarcheye.overlay", "--monitor", monitor, "--mode", mode],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT,
         )
         self.events: queue.Queue = queue.Queue()

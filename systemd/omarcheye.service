@@ -1,7 +1,7 @@
 # Template: install.sh puts in the checkout path and copies it to ~/.config/systemd/user.
-# Not enabled at login; `omeye on|off|toggle` starts and stops it.
+# Not enabled at login; `omarcheye on|off|toggle` starts and stops it.
 [Unit]
-Description=omeye: focus the window you look at
+Description=omarcheye: focus the window you look at
 Documentation=file://@ROOT@/README.md
 PartOf=graphical-session.target
 After=graphical-session.target
@@ -9,7 +9,7 @@ StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
-ExecStart=@ROOT@/bin/omeye run --verbose
+ExecStart=@ROOT@/bin/omarcheye run --verbose
 Restart=on-failure
 RestartSec=2
 Nice=10
