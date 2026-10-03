@@ -1,0 +1,19 @@
+[project]
+name = "omeye"
+version = "0.1.0"
+description = "Focus the Hyprland window you look at, using a webcam"
+requires-python = ">=3.13"
+dependencies = [
+    "mediapipe>=1.0.1",
+    "numpy>=2.5.3",
+    "opencv-python-headless>=5.0.0.93",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

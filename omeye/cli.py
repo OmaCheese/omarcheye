@@ -1,0 +1,166 @@
+"""omeye command line."""
+
+import argparse
+import contextlib
+import json
+import shutil
+import subprocess
+import sys
+import time
+
+from . import config
+from .config import CALIBRATION_PATH, SERVICE
+
+
+def systemctl(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
+
+
+def service_active() -> bool:
+    return systemctl("is-active", "--quiet", SERVICE).returncode == 0
+
+
+def notify(cfg: config.Config, text: str) -> None:
+    if cfg.notify and shutil.which("notify-send"):
+        subprocess.run(["notify-send", "-a", "omeye", "-i", "camera-web", "-t", "2000", "omeye", text])
+
+
+@contextlib.contextmanager
+def camera_free():
+    """Stop the service while a foreground command needs the camera."""
+    was = service_active()
+    if was:
+        systemctl("stop", SERVICE)
+    try:
+        yield
+    finally:
+        if was:
+            systemctl("start", SERVICE)
+
+
+def cmd_on(cfg, args) -> int:
+    if not CALIBRATION_PATH.exists():
+        print("omeye: not calibrated yet; run `omeye calibrate` first", file=sys.stderr)
+        notify(cfg, "Not calibrated yet: run omeye calibrate")
+        return 1
+    r = systemctl("start", SERVICE)
+    if r.returncode:
+        print(r.stderr.strip() or f"omeye: could not start {SERVICE}; run ./install.sh", file=sys.stderr)
+        return 1
+    notify(cfg, "Eye focus on")
+    return 0
+
+
+def cmd_off(cfg, args) -> int:
+    systemctl("stop", SERVICE)
+    notify(cfg, "Eye focus off")
+    return 0
+
+
+def cmd_toggle(cfg, args) -> int:
+    return cmd_off(cfg, args) if service_active() else cmd_on(cfg, args)
+
+
+def cmd_status(cfg, args) -> int:
+    print(f"service:     {'on' if service_active() else 'off'}")
+    if CALIBRATION_PATH.exists():
+        c = json.loads(CALIBRATION_PATH.read_text())
+        print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, "
+              f"error {100 * c['error']:.1f}% of screen width")
+    else:
+        print("calibration: none (run `omeye calibrate`)")
+    from .tracker import pick_camera
+
+    try:
+        dev, name = pick_camera(cfg.camera)
+        print(f"camera:      {name} ({dev})")
+    except RuntimeError as e:
+        print(f"camera:      {e}")
+    return 0
+
+
+def cmd_run(cfg, args) -> int:
+    from .daemon import run
+
+    return run(cfg, preview=args.preview, dry_run=args.dry_run, verbose=args.verbose)
+
+
+def cmd_preview(cfg, args) -> int:
+    from .daemon import run
+
+    with camera_free():
+        return run(cfg, preview=True, dry_run=not args.switch, verbose=True)
+
+
+def cmd_calibrate(cfg, args) -> int:
+    from .calibrate import run
+
+    with camera_free():
+        return run(cfg, args.monitor, args.points)
+
+
+def cmd_cameras(cfg, args) -> int:
+    from .tracker import list_cameras, pick_camera
+
+    try:
+        chosen = pick_camera(cfg.camera)[0]
+    except RuntimeError:
+        chosen = None
+    for dev, name in list_cameras():
+        print(f"{'*' if dev == chosen else ' '} {dev}  {name}")
+    print(f"(* = used with camera = {cfg.camera!r})")
+    return 0
+
+
+def cmd_bench(cfg, args) -> int:
+    import numpy as np
+
+    from .tracker import Camera, FaceTracker, pick_camera
+
+    device, name = pick_camera(cfg.camera)
+    with camera_free():
+        tracker = FaceTracker(delegate=cfg.delegate)
+        cam = Camera(device, cfg.width, cfg.height, cfg.fps)
+        print(f"omeye: {args.seconds} s on {name} ({device}) at {'x'.join(map(str, cam.size()))}, "
+              f"landmarks on {cfg.delegate.upper()}")
+        times, faces = [], 0
+        cpu0, wall0 = time.process_time(), time.monotonic()
+        while time.monotonic() - wall0 < args.seconds:
+            frame = cam.read()
+            if frame is None:
+                continue
+            t = time.monotonic()
+            faces += tracker.process(frame, t) is not None
+            times.append(time.monotonic() - t)
+        wall, cpu = time.monotonic() - wall0, time.process_time() - cpu0
+        cam.close()
+        tracker.close()
+    ms = 1000 * np.array(times or [0])
+    print(f"frames {len(times)} ({len(times) / wall:.1f} fps), face in {100 * faces / max(len(times), 1):.0f}%")
+    print(f"landmarks {np.median(ms):.1f} ms median, {np.percentile(ms, 95):.1f} ms p95")
+    print(f"CPU {100 * cpu / wall:.0f}% of one core")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="omeye", description="Focus the Hyprland window you look at.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("on", help="start eye focus (systemd user service)")
+    sub.add_parser("off", help="stop eye focus")
+    sub.add_parser("toggle", help="on if off, off if on")
+    sub.add_parser("status", help="service, calibration and camera")
+    p = sub.add_parser("calibrate", help="follow dots on screen to calibrate")
+    p.add_argument("--monitor", default="", help="monitor the camera sits on (default: focused)")
+    p.add_argument("--points", type=int, default=0, help="number of dots (9, 12, 15, 20 or 24)")
+    p = sub.add_parser("preview", help="show where omeye thinks you look")
+    p.add_argument("--switch", action="store_true", help="also switch focus")
+    p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")
+    p.add_argument("--preview", action="store_true")
+    p.add_argument("--dry-run", action="store_true", help="never change focus")
+    p.add_argument("-v", "--verbose", action="store_true")
+    sub.add_parser("cameras", help="list cameras")
+    p = sub.add_parser("bench", help="measure landmark speed and CPU use")
+    p.add_argument("--seconds", type=float, default=10)
+    args = ap.parse_args(argv)
+    cfg = config.load()
+    return globals()[f"cmd_{args.cmd}"](cfg, args)

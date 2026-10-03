@@ -1,0 +1,179 @@
+"""Full-monitor layer-shell overlay drawn with GTK 4.
+
+Runs under the system Python, which has PyGObject; omeye's own environment
+starts it through OverlayProcess (overlay_client.py). Commands arrive as
+JSON lines on stdin and events leave as JSON lines on stdout.
+
+  calibrate mode: opaque, takes the keyboard (reports key presses)
+  follow mode:    transparent and click-through; draws the gaze point
+
+Commands: {"cmd": "text", "text": ...}, {"cmd": "dot", "x", "y", "ms"} (no x
+to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "quit"}.
+Coordinates are logical pixels from the monitor's top-left corner.
+"""
+
+import argparse
+import json
+import sys
+import threading
+import time
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
+
+CSS = b"""
+window.omeye-calibrate { background: #111318; }
+window.omeye-follow { background: transparent; }
+"""
+
+
+def emit(**event) -> None:
+    print(json.dumps(event), flush=True)
+
+
+class Overlay(Gtk.ApplicationWindow):
+    def __init__(self, app: Gtk.Application, monitor: str, mode: str):
+        super().__init__(application=app)
+        self.mode = mode
+        self.text = ""
+        self.dot = None  # (x, y, start, seconds)
+        self.gaze = None  # (x, y, on_target)
+        self.add_css_class(f"omeye-{mode}")
+
+        LayerShell.init_for_window(self)
+        LayerShell.set_namespace(self, "omeye")
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        for edge in (LayerShell.Edge.TOP, LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
+            LayerShell.set_anchor(self, edge, True)
+        LayerShell.set_exclusive_zone(self, -1)  # cover the bar too: the whole monitor
+        LayerShell.set_keyboard_mode(
+            self, LayerShell.KeyboardMode.EXCLUSIVE if mode == "calibrate" else LayerShell.KeyboardMode.NONE
+        )
+        monitors = self.get_display().get_monitors()
+        for i in range(monitors.get_n_items()):
+            if monitors.get_item(i).get_connector() == monitor:
+                LayerShell.set_monitor(self, monitors.get_item(i))
+
+        self.area = Gtk.DrawingArea()
+        self.area.set_draw_func(self.draw)
+        self.area.connect("resize", lambda _a, w, h: emit(event="ready", width=w, height=h))
+        self.set_child(self.area)
+
+        if mode == "calibrate":
+            keys = Gtk.EventControllerKey()
+            keys.connect("key-pressed", self.on_key)
+            self.add_controller(keys)
+        else:
+            self.connect("map", lambda _w: self.get_surface().set_input_region(cairo.Region()))
+        self.add_tick_callback(self.tick)
+
+    def on_key(self, _ctl, keyval, _code, _state) -> bool:
+        from gi.repository import Gdk
+
+        emit(event="key", key=Gdk.keyval_name(keyval))
+        return True
+
+    def tick(self, _widget, _clock) -> bool:
+        if self.dot:
+            self.area.queue_draw()
+        return GLib.SOURCE_CONTINUE
+
+    def handle(self, msg: dict) -> bool:
+        cmd = msg.get("cmd")
+        if cmd == "text":
+            self.text = msg.get("text", "")
+        elif cmd == "dot":
+            self.dot = (msg["x"], msg["y"], time.monotonic(), msg.get("ms", 1000) / 1000) if "x" in msg else None
+        elif cmd == "gaze":
+            self.gaze = (msg["x"], msg["y"], msg.get("on", False)) if "x" in msg else None
+        elif cmd == "quit":
+            self.get_application().quit()
+        self.area.queue_draw()
+        return GLib.SOURCE_REMOVE
+
+    def draw(self, _area, cr: cairo.Context, width: int, height: int) -> None:
+        if self.mode == "follow":
+            cr.set_operator(cairo.OPERATOR_SOURCE)
+            cr.set_source_rgba(0, 0, 0, 0)
+            cr.paint()
+            cr.set_operator(cairo.OPERATOR_OVER)
+        if self.dot:
+            x, y, start, seconds = self.dot
+            k = min((time.monotonic() - start) / seconds, 1.0)
+            radius = 30 - 22 * (1 - (1 - k) ** 2)
+            cr.set_source_rgb(0.98, 0.78, 0.25)
+            cr.arc(x, y, radius, 0, 6.2832)
+            cr.fill()
+            cr.set_source_rgb(0.07, 0.07, 0.09)
+            cr.arc(x, y, 3, 0, 6.2832)
+            cr.fill()
+        if self.gaze:
+            x, y, on = self.gaze
+            cr.set_line_width(4)
+            cr.set_source_rgba(0.3, 0.85, 0.5, 0.85) if on else cr.set_source_rgba(0.98, 0.78, 0.25, 0.75)
+            cr.arc(x, y, 26, 0, 6.2832)
+            cr.stroke()
+        if self.text:
+            self.draw_text(cr, width, height)
+
+    def draw_text(self, cr: cairo.Context, width: int, height: int) -> None:
+        size = 26 if self.mode == "calibrate" else 18
+        cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(size)
+        lines = self.text.split("\n")
+        y = height * 0.38 - len(lines) * size * 0.7 if self.mode == "calibrate" else height - 24 - len(lines) * size * 1.4
+        for line in lines:
+            ext = cr.text_extents(line)
+            x = (width - ext.width) / 2 if self.mode == "calibrate" else 24
+            if self.mode == "follow":
+                cr.set_source_rgba(0, 0, 0, 0.6)
+                cr.rectangle(x - 6, y - size, ext.width + 12, size * 1.35)
+                cr.fill()
+            cr.set_source_rgb(0.92, 0.92, 0.94)
+            cr.move_to(x, y)
+            cr.show_text(line)
+            y += size * 1.4
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--monitor", required=True)
+    ap.add_argument("--mode", choices=("calibrate", "follow"), default="calibrate")
+    args = ap.parse_args()
+
+    if not LayerShell.is_supported():
+        print("omeye overlay: layer shell unsupported (is LD_PRELOAD set?)", file=sys.stderr)
+        sys.exit(1)
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    app = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def activate(app: Gtk.Application) -> None:
+        from gi.repository import Gdk
+
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, 600)
+        win = Overlay(app, args.monitor, args.mode)
+        win.present()
+
+        def read_stdin() -> None:
+            for line in sys.stdin:
+                try:
+                    GLib.idle_add(win.handle, json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+            GLib.idle_add(app.quit)
+
+        threading.Thread(target=read_stdin, daemon=True).start()
+
+    app.connect("activate", activate)
+    app.run([])
+
+
+if __name__ == "__main__":
+    main()
