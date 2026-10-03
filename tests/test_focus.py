@@ -148,6 +148,15 @@ def test_looking_away_for_long_is_a_move_not_a_glance():
     assert not g.armed
 
 
+def test_a_look_sideways_is_not_a_glance_and_does_not_hold_switching():
+    g = Glance(ASPECT)
+    g.arm(0.0, (0.3, 0.4))
+    side = [(0.6, 0.4)] * 9
+    assert run_glance(g, [(0.3, 0.4)] * 12 + side[:3]) == []
+    assert g.away and not g.holding  # moving to the next window: switch as fast as ever
+    assert run_glance(g, side[3:] + [(0.3, 0.4)] * 3, t0=0.5) == []
+
+
 def test_a_look_down_at_the_keyboard_is_not_a_glance():
     g = Glance(ASPECT)
     g.arm(0.0, (0.3, 0.4))

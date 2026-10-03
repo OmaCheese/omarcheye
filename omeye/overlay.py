@@ -12,7 +12,9 @@ to hide), {"cmd": "gaze", "x", "y", "state"} (no x to hide), {"cmd": "grid",
 "cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
 {"cmd": "camera", "jpeg": base64, "caption", "place": "center" | "corner"}
 (no jpeg to hide), {"cmd": "rect", "x", "y", "w", "h", "label", "state"} (no x to
-hide), {"cmd": "point", "x", "y"} (a small dot; no x to hide), {"cmd": "quit"}.
+hide), {"cmd": "point", "x", "y"} (a small dot; no x to hide), {"cmd": "fill",
+"level": 0..1} (the whole monitor grey to white, 0 to clear; reports
+{"event": "painted", "t": monotonic time} when drawn), {"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
 
@@ -62,6 +64,8 @@ class Overlay(Gtk.ApplicationWindow):
         self.camera = None  # (pixbuf, caption, place)
         self.rect = None  # (x, y, w, h, label, state)
         self.point = None  # (x, y)
+        self.fill = 0.0  # 0..1: the whole monitor grey to white (omeye latency)
+        self.fill_changed = False
         self.add_css_class(f"omeye-{mode}")
 
         LayerShell.init_for_window(self)
@@ -123,6 +127,9 @@ class Overlay(Gtk.ApplicationWindow):
             self.grid = (msg["cols"], msg["rows"], msg["fill"]) if "cols" in msg else None
         elif cmd == "gaze":
             self.gaze = (msg["x"], msg["y"], msg.get("state", "likely")) if "x" in msg else None
+        elif cmd == "fill":
+            self.fill = float(msg.get("level", 0))
+            self.fill_changed = True
         elif cmd == "quit":
             self.get_application().quit()
         self.area.queue_draw()
@@ -134,6 +141,12 @@ class Overlay(Gtk.ApplicationWindow):
             cr.set_source_rgba(0, 0, 0, 0)
             cr.paint()
             cr.set_operator(cairo.OPERATOR_OVER)
+        if self.fill:
+            cr.set_source_rgb(self.fill, self.fill, self.fill)
+            cr.paint()
+        if self.fill_changed:
+            self.fill_changed = False
+            emit(event="painted", t=time.monotonic())
         if self.grid:
             cols, rows, fill = self.grid
             cw, ch = width / cols, height / rows

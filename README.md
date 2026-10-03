@@ -8,7 +8,7 @@ Status: version 0.7. It runs on lunar-gouda with a OnePlus 13 streamed through F
 
 ```
 webcam frame ─► face + iris landmarks ─► gaze features ─► point on screen ─► window ─► focus
-  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated,      (chance of  (99%: now;
+  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated,      (chance of  (97%: now;
                  Landmarker, 478 points)   eye-direction       plus the shift    each window 90%: 0.25 s)
                                            scores, head pose)  learned since)    in the layout)
 ```
@@ -18,8 +18,8 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
 5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omeye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
-6. **Switching.** How long omeye waits depends on how sure it is. At 99% focus moves at once, which happens within a few frames when you look clearly into a window: about 0.1 s in simulation, 0.2 s replayed on real calibration data for side-by-side or 2×2 windows. Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about three times a minute. Windows stacked top and bottom stay slower (about 0.5 s on the replay): up-down is the weaker direction for a camera above the screen, so the evidence rarely reaches 99%. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
-7. **A glance retries.** If omeye focuses the wrong window, look up at the camera (or anywhere well away, but not down) and straight back, within 2 s of the switch. Focus moves on to the runner-up: the likeliest window next to where you are looking, leaving out the ones already tried. Another glance tries the next one. To count, the look away lasts 0.1–0.7 s and goes at least 12% of the screen width from where you were looking. The first 0.3 s after a switch don't count, because the estimate is still settling from the eye movement. While a look away is under way, omeye doesn't switch; longer than 0.7 s, it was a move, and switching carries on as usual. A look down and back is at the keyboard and doesn't count. Once you type or move the mouse, the window is accepted and glances do nothing. The log says `retry: A -> B`, and a window just rejected isn't focused again within 3 s.
+6. **Switching.** How long omeye waits depends on how sure it is. At 97%, held for 40 ms (the two frames after the first), focus moves at once. That happens within a few frames when you look clearly into a window: replayed on real calibration data, a median of 0.2 s for 2×2 windows and 0.27 s for the seven windows of workspace 1 (see [Where the time goes](#where-the-time-goes)). Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about four times a minute. Windows stacked top and bottom stay slower: up-down is the weaker direction for a camera above the screen, so the evidence rarely gets that sure. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omeye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
+7. **A glance retries.** If omeye focuses the wrong window, look up at the camera and straight back, within 2 s of the switch. Focus moves on to the runner-up: the likeliest window next to where you are looking, leaving out the ones already tried. Another glance tries the next one. To count, the look away lasts 0.1–0.7 s and goes at least 12% of the screen width from where you were looking. The first 0.3 s after a switch don't count, because the estimate is still settling from the eye movement. While a look up is under way, omeye doesn't switch (looking up at the camera can land the estimate in a top window); longer than 0.7 s, it was a move, and switching carries on as usual. Looks sideways or down (at the keyboard) don't count and never hold switching back. A quick look that loses the face counts too. Once you type or move the mouse, the window is accepted and glances do nothing. The log says `retry: A -> B`, and a window just rejected isn't focused again within 3 s.
 8. **Learning how you sit now.** Sitting differently moves every estimate by about the same amount (see [Picking the neighbouring window](#picking-the-neighbouring-window)). omeye learns that shift (`drift.py`) from three kinds of record:
    - a retry: the window it ends on is where you were looking;
    - focus you move yourself within 3 s of omeye moving it, the same;
@@ -65,10 +65,11 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 | `omeye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
 | `omeye cameras` | List cameras and mark the one in use |
 | `omeye bench [--seconds S]` | Landmark speed, processor load, eye size in pixels and landmark jitter (look at one spot while it runs) |
+| `omeye latency` | Flashes the screen white 8 times and times how long the camera takes to show it (sit in front of it) |
 
 The camera view also appears, large, on the start screens of `calibrate` and `refine`, and in the bottom-right corner during `preview`. It draws a dot per face landmark, circles on the irises and the face outline: green when the face is well placed, amber near an edge of the image, red when it's cut off. Below it: the eye's width in pixels, brightness, frames per second and what to do about the camera's aim. Frames go to the overlay in memory and are never written to disk.
 
-`calibrate`, `refine`, `recentre`, `test`, `preview`, `camera` and `bench` pause the service while they use the camera, then start it again.
+`calibrate`, `refine`, `recentre`, `test`, `preview`, `camera`, `bench` and `latency` pause the service while they use the camera, then start it again.
 
 The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
@@ -81,7 +82,7 @@ camera = "auto"          # or "/dev/video2", or part of the camera's name
 delegate = "cpu"         # "gpu" runs the landmark model on the integrated GPU
 dwell_ms = 250           # the likely window must stay confident this long
 confidence = 0.9         # how sure omeye must be before focus moves (higher: fewer flips on borders)
-quick_confidence = 0.99  # this sure, and focus moves after quick_ms (0) instead; 0.98 is faster, a little less safe
+quick_confidence = 0.97  # this sure for quick_ms (40), and focus moves at once (higher: slower, fewer stray switches)
 switch_rate = 1.5        # expected gaze moves between windows per second (higher: follows faster, flips more)
 typing_grace_ms = 700    # no switching until this long after the last key
 mouse_grace_ms = 2000    # the mouse wins for this long after it moves
@@ -140,6 +141,30 @@ The frames of both sittings were replayed through the 7 windows on workspace 1 a
 In the other sitting, five minutes went from 32 wrong switches and 54 fixes by hand to 2 and 8. The first minute, before much is learned, is at 64% (28% before). Typing records without the margin inside the window, or at 0.1 of a record, did worse there (89–94%), and without the margin also in the same sitting (86%).
 
 The first replay found retries where nobody glanced. In the first 0.3 s after the eyes land on a spot, the estimate is still settling, up to 26% of the width away from where it ends up. Replayed in a loop, that looks like a look away and back, and live it can follow a quick switch the same way. So the glance detector now lets the estimate settle for 0.3 s after each switch.
+
+## Where the time goes
+
+From your eyes moving to focus moving:
+
+| Stage | Time |
+|---|---|
+| Your eyes: deciding to look, and the saccade | about 0.2 s, the same with any tracker |
+| The camera: exposure, and for the phone its encoding, the stream and decoding | measure with `omeye latency` |
+| Landmarks and gaze (Python, with MediaPipe's C++ model) | 11.5 ms per frame at 30 fps |
+| Deciding: evidence building up over frames | median 0.27 s, 90th percentile 0.75 s (7 windows) |
+| Hyprland moving focus | a few ms |
+
+The deciding stage was measured by replaying the calibration frames through the seven windows of workspace 1, looks of 0.6–2.5 s at random spots, eight runs. Small windows take longer, because a blob of the calibration's error (6.6% of the width, about 200 px, per axis) never sits wholly inside a window 430 px tall. Median time from the estimate landing in a window to focus moving there:
+
+| | 2×2 windows | 7 windows |
+|---|---|---|
+| 99% at once (before tonight) | 0.20 s | 0.37 s |
+| ... plus the glance retry's hold on every look away (0.7 as first committed) | 0.73 s | 0.73 s |
+| ... with the hold only on looks up | 0.20 s | 0.37 s |
+| 97% for 40 ms (now) | 0.20 s | 0.27 s |
+| 98% at once | 0.13 s | 0.23 s |
+
+98% at once is faster still, but two stray frames into a clear window then switch focus in 8 of 20 runs, against none at 97% for 40 ms. Wrong switches stayed at 2.8% of looks in all of these. Softening each frame less (`temper` 0.7) gets 0.17 s, but doubles the flips on a border.
 
 ## Processor load
 
@@ -210,6 +235,7 @@ omeye/            Python package
   focus.py        chance of each window, belief, when to switch, glance retry
   drift.py        the shift since calibration, learned from corrections
   recentre.py     omeye recentre
+  latency.py      omeye latency
   filters.py      One Euro filter
   activity.py     typing and mouse activity
   hypr.py         Hyprland socket

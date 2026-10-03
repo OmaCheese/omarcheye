@@ -127,6 +127,13 @@ def cmd_recentre(cfg, args) -> int:
         return run(cfg)
 
 
+def cmd_latency(cfg, args) -> int:
+    from .latency import run
+
+    with camera_free():
+        return run(cfg)
+
+
 def cmd_test(cfg, args) -> int:
     from .validate import run
 
@@ -233,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-v", "--verbose", action="store_true")
     sub.add_parser("camera", help="show what the camera sees, with the tracking drawn on (Ctrl+C to close)")
     sub.add_parser("cameras", help="list cameras")
+    sub.add_parser("latency", help="flash the screen to measure how far the camera lags behind")
     p = sub.add_parser("bench", help="measure landmark speed and CPU use")
     p.add_argument("--seconds", type=float, default=10)
     args = ap.parse_args(argv)

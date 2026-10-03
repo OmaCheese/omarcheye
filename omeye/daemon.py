@@ -295,7 +295,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     glance.arm(now, glance.spot)
 
             chosen = belief.step(now, chances, layout.focused, activity.last(now), cursor.last_move,
-                                 hold=glance.away, avoid=chain.tried[:-1] if chain else ())
+                                 hold=glance.holding, avoid=chain.tried[:-1] if chain else ())
             top, prob = belief.top()
             ready = top is not AWAY and top != layout.focused and prob >= belief.p.confidence
             if ready and busy:

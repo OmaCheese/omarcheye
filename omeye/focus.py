@@ -65,8 +65,8 @@ def window_chances(windows: list[Window], x: float, y: float, sigma: float) -> d
 class BeliefParams:
     dwell: float = 0.25  # seconds the belief must stay confident
     confidence: float = 0.9  # belief a window needs before focus moves
-    quick: float = 0.99  # ... unless it is at least this sure:
-    quick_dwell: float = 0.0  # then this long is enough
+    quick: float = 0.97  # ... unless it is at least this sure:
+    quick_dwell: float = 0.04  # then this long is enough
     switch_rate: float = 1.5  # expected gaze moves between windows per second
     temper: float = 0.5  # frames aren't independent (the error is mostly a steady offset): soften each one
     typing_grace: float = 0.7
@@ -173,8 +173,10 @@ class Glance:
     as away once two frames in a row are `away` (monitor widths) from the
     anchor, or have no face; it counts as back once two frames are within `back`.
     Away for longer than `longest` is a real move, and omeye switches as usual.
-    A look down and back is at the keyboard, not a glance. Blinks never reach
-    here. Typing or moving the mouse disarms it: using the window accepts it.
+    Only a look up (at the camera) and back, or one without a face, is a
+    glance: looking sideways or down at the keyboard isn't, and switching
+    carries on at full speed meanwhile. Blinks never reach here. Typing or
+    moving the mouse disarms it: using the window accepts it.
     """
 
     FRAMES = 2
@@ -196,8 +198,20 @@ class Glance:
 
     @property
     def away(self) -> bool:
-        """A look away is under way: hold switching until it's clear what it was."""
         return self.away_since is not None
+
+    @property
+    def upward(self) -> bool:
+        """The look away so far went up, or lost the face: it may be a glance."""
+        if self.sum == [0.0, 0.0]:
+            return True
+        return -self.sum[1] >= abs(self.sum[0])
+
+    @property
+    def holding(self) -> bool:
+        """A look up is under way: hold switching until it's clear what it was.
+        (Looking up at the camera can land the estimate in a top window.)"""
+        return self.away and self.upward
 
     def arm(self, now: float, anchor: tuple[float, float]) -> None:
         self.disarm()
@@ -247,10 +261,10 @@ class Glance:
         if off is not None and math.hypot(*off) < self.near:
             self.count += 1
             if self.count >= self.FRAMES:
-                down = self.sum[1] > abs(self.sum[0])
+                upward = self.upward
                 spot, until = self.anchor, self.until
                 self.disarm()
-                if down:  # at the keyboard: carry on as before
+                if not upward:  # sideways, or down at the keyboard: carry on as before
                     self.anchor, self.until = spot, until
                     return False
                 self.spot = spot
