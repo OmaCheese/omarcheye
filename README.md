@@ -149,12 +149,12 @@ From your eyes moving to focus moving:
 | Stage | Time |
 |---|---|
 | Your eyes: deciding to look, and the saccade | about 0.2 s, the same with any tracker |
-| The camera: exposure, and for the phone its encoding, the stream and decoding | measure with `omeye latency` |
+| The camera: exposure, and for the phone its encoding, the stream and decoding | 0.31 s for the OnePlus 13 through Flux over Wi-Fi (`omeye latency`: median of 8 edges, 0.24–0.34 s, including a refresh or two of the monitor) |
 | Landmarks and gaze (Python, with MediaPipe's C++ model) | 11.5 ms per frame at 30 fps |
 | Deciding: evidence building up over frames | median 0.27 s, 90th percentile 0.75 s (7 windows) |
 | Hyprland moving focus | a few ms |
 
-The deciding stage was measured by replaying the calibration frames through the seven windows of workspace 1, looks of 0.6–2.5 s at random spots, eight runs. Small windows take longer, because a blob of the calibration's error (6.6% of the width, about 200 px, per axis) never sits wholly inside a window 430 px tall. Median time from the estimate landing in a window to focus moving there:
+So of roughly 0.8 s from eyes to focus, the phone camera is the largest part the machine adds; a plug-in USB webcam would typically take a fraction of it. The deciding stage was measured by replaying the calibration frames through the seven windows of workspace 1, looks of 0.6–2.5 s at random spots, eight runs. Small windows take longer, because a blob of the calibration's error (6.6% of the width, about 200 px, per axis) never sits wholly inside a window 430 px tall. Median time from the estimate landing in a window to focus moving there:
 
 | | 2×2 windows | 7 windows |
 |---|---|---|
