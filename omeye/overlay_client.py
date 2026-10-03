@@ -17,6 +17,10 @@ class OverlayProcess:
     def __init__(self, monitor: str, mode: str):
         # gtk4-layer-shell must load before libwayland-client, hence LD_PRELOAD.
         env = dict(os.environ, LD_PRELOAD=LAYER_SHELL, PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
+        # With delegate = "gpu" the tracker sets DRI_PRIME to the Radeon. The
+        # overlay must draw on the GPU that drives the monitor (the NVIDIA card
+        # for HDMI here): drawn on the Radeon, its transparent surface comes out black.
+        env.pop("DRI_PRIME", None)
         self.proc = subprocess.Popen(
             [SYSTEM_PYTHON, "-m", "omeye.overlay", "--monitor", monitor, "--mode", mode],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT,
