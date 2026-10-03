@@ -152,12 +152,15 @@ def cmd_bench(cfg, args) -> int:
         cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
         print(f"omeye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
               f"landmarks on {cfg.delegate.upper()}")
-        times, faces, eyes = [], 0, []
+        times, faces, eyes, new_frames, last_sig = [], 0, [], 0, None
         cpu0, wall0 = time.process_time(), time.monotonic()
         while time.monotonic() - wall0 < args.seconds:
             frame = cam.read()
             if frame is None:
                 continue
+            sig = frame[::16, ::16].tobytes()
+            new_frames += sig != last_sig  # a camera that runs slower repeats frames
+            last_sig = sig
             t = time.monotonic()
             s = tracker.process(frame, t)
             times.append(time.monotonic() - t)
@@ -170,14 +173,16 @@ def cmd_bench(cfg, args) -> int:
         cam.close()
         tracker.close()
     ms = 1000 * np.array(times or [0])
-    print(f"frames {len(times)} ({len(times) / wall:.1f} fps), face in {100 * faces / max(len(times), 1):.0f}%")
+    print(f"frames {len(times)} ({len(times) / wall:.1f} fps, {new_frames / wall:.1f} of them new), "
+          f"face in {100 * faces / max(len(times), 1):.0f}%")
     print(f"landmarks {np.median(ms):.1f} ms median, {np.percentile(ms, 95):.1f} ms p95")
     print(f"CPU {100 * cpu / wall:.0f}% of one core")
     if len(eyes) > 10:
-        # Frame-to-frame jitter: spread of the differences between consecutive
-        # frames, divided by sqrt 2, so a slow drift of the head doesn't count.
+        # Frame-to-frame jitter: robust spread (median absolute difference) of
+        # the change between consecutive frames, over sqrt 2. Slow head drift
+        # doesn't count, and neither do the few frames around a blink.
         e = np.array(eyes)
-        jitter = np.diff(e[:, 1:], axis=0).std(0) / np.sqrt(2)
+        jitter = 1.4826 * np.median(np.abs(np.diff(e[:, 1:], axis=0)), 0) / np.sqrt(2)
         w = np.median(e[:, 0])
         names = ("iris across", "iris down", "iris across", "iris down", "upper lid", "lower lid")
         print(f"eye {w:.0f} px wide; landmark jitter (eye widths, pixels):")
