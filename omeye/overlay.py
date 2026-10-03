@@ -11,7 +11,8 @@ Commands: {"cmd": "text", "text": ...}, {"cmd": "dot", "x", "y", "ms"} (no x
 to hide), {"cmd": "gaze", "x", "y", "on"} (no x to hide), {"cmd": "grid",
 "cols", "rows", "fill": [0..1 per cell, row by row]} (no cols to hide),
 {"cmd": "camera", "jpeg": base64, "caption", "place": "center" | "corner"}
-(no jpeg to hide), {"cmd": "quit"}.
+(no jpeg to hide), {"cmd": "rect", "x", "y", "w", "h", "label", "on"} (no x to
+hide), {"cmd": "quit"}.
 Coordinates are logical pixels from the monitor's top-left corner.
 """
 
@@ -55,6 +56,7 @@ class Overlay(Gtk.ApplicationWindow):
         self.gaze = None  # (x, y, on_target)
         self.grid = None  # (cols, rows, fill per cell)
         self.camera = None  # (pixbuf, caption, place)
+        self.rect = None  # (x, y, w, h, label, on)
         self.add_css_class(f"omeye-{mode}")
 
         LayerShell.init_for_window(self)
@@ -107,6 +109,9 @@ class Overlay(Gtk.ApplicationWindow):
                 self.camera = (loader.get_pixbuf(), msg.get("caption", ""), msg.get("place", "corner"))
             else:
                 self.camera = None
+        elif cmd == "rect":
+            self.rect = (msg["x"], msg["y"], msg["w"], msg["h"], msg.get("label", ""), msg.get("on", False)) \
+                if "x" in msg else None
         elif cmd == "grid":
             self.grid = (msg["cols"], msg["rows"], msg["fill"]) if "cols" in msg else None
         elif cmd == "gaze":
@@ -143,6 +148,17 @@ class Overlay(Gtk.ApplicationWindow):
             cr.set_source_rgb(0.07, 0.07, 0.09)
             cr.arc(x, y, 3, 0, 6.2832)
             cr.fill()
+        if self.rect:
+            x, y, w, h, label, on = self.rect
+            cr.set_line_width(4)
+            cr.set_source_rgba(0.3, 0.85, 0.5, 0.8) if on else cr.set_source_rgba(0.98, 0.78, 0.25, 0.8)
+            cr.rectangle(x + 2, y + 2, w - 4, h - 4)
+            cr.stroke()
+            if label:
+                cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                cr.set_font_size(16)
+                cr.move_to(x + 12, y + 26)
+                cr.show_text(label)
         if self.gaze:
             x, y, on = self.gaze
             cr.set_line_width(4)

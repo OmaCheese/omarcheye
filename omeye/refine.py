@@ -16,12 +16,12 @@ from collections import deque
 import numpy as np
 
 from . import samples
-from .calibrate import Cancelled, check_keys, wait_for_start
+from .calibrate import Cancelled, check_keys, compare, wait_for_start
 from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
-from .model import MOUSE, GazeModel, fit_samples
+from .model import MOUSE, GazeModel, fit_samples, vectors
 from .overlay_client import OverlayProcess
-from .tracker import Camera, FaceTracker, pick_camera
+from .tracker import FEATURES, RICH, Camera, FaceTracker, pick_camera
 
 COLS, ROWS = 6, 4
 PER_CELL = 15  # frames that make a cell covered
@@ -53,7 +53,7 @@ def cell(nx: float, ny: float) -> int:
 
 
 def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
-    feats, opens, groups, targets = [], [], [], []
+    feats, rich, opens, groups, targets = [], [], [], [], []
     counts = np.zeros(COLS * ROWS, int)
     history: deque = deque(maxlen=90)
     end = time.monotonic() + seconds
@@ -74,9 +74,11 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
             continue
         history.append((t, nx, ny))
         s = tracker.process(frame, t)
-        if s is not None and not s.cut_off and 0 <= nx < 1 and 0 <= ny < 1 and pointer_still(history, t, aspect):
+        if (s is not None and not s.cut_off and s.rich is not None and 0 <= nx < 1 and 0 <= ny < 1
+                and pointer_still(history, t, aspect)):
             c = cell(nx, ny)
             feats.append(s.feat)
+            rich.append(s.rich)
             opens.append(s.openness)
             groups.append(MOUSE + c)
             targets.append((nx, ny))
@@ -87,8 +89,8 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
             ov.send(cmd="text", text=f"Covered {(counts >= PER_CELL).sum()} of {COLS * ROWS} cells"
                     f"   {max(0, end - now):.0f} s left\n\nEnter: finish now      Esc: cancel")
     ov.send(cmd="grid")
-    return {"feats": np.array(feats).reshape(-1, 7), "opens": np.array(opens), "groups": np.array(groups, int),
-            "targets": np.array(targets).reshape(-1, 2)}
+    return {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
+            "opens": np.array(opens), "groups": np.array(groups, int), "targets": np.array(targets).reshape(-1, 2)}
 
 
 def run(cfg: Config, seconds: float = 60) -> int:
@@ -126,14 +128,16 @@ def run(cfg: Config, seconds: float = 60) -> int:
             raise RuntimeError(f"only {len(cells)} cells got enough frames; rest the pointer in more places")
 
         merged = samples.merge(stored, new)
-        model, used, n_frames = fit_samples(merged["feats"], merged["opens"], merged["groups"], merged["targets"],
-                                            aspect, mon.name, info.name, score=cells)
+        model, used, n_frames, errors = fit_samples(merged["feats"], merged["opens"], merged["groups"],
+                                                    merged["targets"], aspect, mon.name, info.name, score=cells,
+                                                    rich=merged["rich"])
         after = model.error
         before = None
         if previous:
             ok = new["opens"] >= previous.blink
             if ok.any():
-                before = previous.group_error(new["feats"][ok], new["targets"][ok], new["groups"][ok], aspect)
+                before = previous.group_error(vectors(new, previous.kind)[ok], new["targets"][ok], new["groups"][ok],
+                                              aspect)
 
         width = ready["width"]
         line = f"on the pointer samples: {100 * after:.0f}% of the screen width ({after * width:.0f} px)"
@@ -145,7 +149,7 @@ def run(cfg: Config, seconds: float = 60) -> int:
             samples.save(info.name, mon.name, merged)
             title = "Calibration refined"
             text = (f"Typical error {line}" + (f", was {100 * before:.0f}%" if before is not None else "")
-                    + f"\n{len(used)} dots and cells, {n_frames} frames")
+                    + f"\n{len(used)} dots and cells, {n_frames} frames\n{compare(errors, model.kind)}")
         print(f"omeye: {title}. {text}".replace("\n", "; "))
         ov.send(cmd="text", text=f"{title}\n\n{text}\n\nPress any key")
         end = time.monotonic() + 8

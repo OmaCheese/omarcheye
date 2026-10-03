@@ -139,27 +139,33 @@ def cmd_cameras(cfg, args) -> int:
 def cmd_bench(cfg, args) -> int:
     import numpy as np
 
-    from .tracker import Camera, FaceTracker, pick_camera
+    from .tracker import A_LEFT, A_RIGHT, B_LEFT, B_RIGHT, Camera, FaceTracker, pick_camera
 
     try:
         info = pick_camera(cfg.camera)
     except RuntimeError as e:
         print(f"omeye: {e}", file=sys.stderr)
         return 1
+    print("omeye: look at one spot on the screen until it finishes")
     with camera_free():
         tracker = FaceTracker(delegate=cfg.delegate)
         cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
         print(f"omeye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
               f"landmarks on {cfg.delegate.upper()}")
-        times, faces = [], 0
+        times, faces, eyes = [], 0, []
         cpu0, wall0 = time.process_time(), time.monotonic()
         while time.monotonic() - wall0 < args.seconds:
             frame = cam.read()
             if frame is None:
                 continue
             t = time.monotonic()
-            faces += tracker.process(frame, t) is not None
+            s = tracker.process(frame, t)
             times.append(time.monotonic() - t)
+            if s is not None:
+                faces += 1
+                p = s.points
+                width = (np.linalg.norm(p[A_RIGHT] - p[A_LEFT]) + np.linalg.norm(p[B_RIGHT] - p[B_LEFT])) / 2
+                eyes.append((width, *s.rich[:6]))
         wall, cpu = time.monotonic() - wall0, time.process_time() - cpu0
         cam.close()
         tracker.close()
@@ -167,6 +173,16 @@ def cmd_bench(cfg, args) -> int:
     print(f"frames {len(times)} ({len(times) / wall:.1f} fps), face in {100 * faces / max(len(times), 1):.0f}%")
     print(f"landmarks {np.median(ms):.1f} ms median, {np.percentile(ms, 95):.1f} ms p95")
     print(f"CPU {100 * cpu / wall:.0f}% of one core")
+    if len(eyes) > 10:
+        # Frame-to-frame jitter: spread of the differences between consecutive
+        # frames, divided by sqrt 2, so a slow drift of the head doesn't count.
+        e = np.array(eyes)
+        jitter = np.diff(e[:, 1:], axis=0).std(0) / np.sqrt(2)
+        w = np.median(e[:, 0])
+        names = ("iris across", "iris down", "iris across", "iris down", "upper lid", "lower lid")
+        print(f"eye {w:.0f} px wide; landmark jitter (eye widths, pixels):")
+        for name, eye_name, j in zip(names, ("A", "A", "B", "B", "A", "A"), jitter):
+            print(f"  {name:12s} eye {eye_name}  {j:.4f}  {j * w:.2f} px")
     return 0
 
 

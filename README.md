@@ -2,22 +2,23 @@
 
 Look at a window and it gets focus. omeye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omeye toggle` (or a key bound to it).
 
-Status: version 0.1. The full pipeline runs, including from a phone camera streamed through Flux, but it has not tracked a real face yet. On lunar-gouda the lid is shut, and the first phone stream only sent black frames.
+Status: version 0.2. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera. After dot calibration and `refine`, the cross-validated error was 6.4% of the screen width (about 4.5 cm). The fixation filter, window voting and the rich feature set came from analysing that calibration and have not been tried live yet.
 
 ## How it works
 
 ```
 webcam frame ─► face + iris landmarks ─► gaze features ─► point on screen ─► window ─► focus
-  (OpenCV)      (MediaPipe Face           (iris inside each   (calibrated       (Hyprland   (after a 0.4 s
-                 Landmarker, 478 points)   eye + head pose)    regression)       layout)     dwell)
+  (OpenCV)      (MediaPipe Face           (iris and lids,     (calibrated       (Hyprland   (70% of the
+                 Landmarker, 478 points)   eye-direction       regression,       layout)     frames over
+                                           scores, head pose)  kept on screen)               0.4 s vote)
 ```
 
-1. **Features.** For each eye, where the iris sits between the corners (`u`, across) and between the lids (`v`, down), in eye widths, so head roll cancels out. Both eyes are averaged. Head yaw, pitch and position relative to the camera come from MediaPipe's face transformation matrix.
-2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect.
+1. **Features.** Two sets are recorded, and calibration keeps whichever predicts better on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
+2. **Calibration** (`omeye calibrate`) shows 15 dots. While you look at each one, omeye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation, chooses between the basic and the rich feature set, and reports the error you can expect.
 3. **Refining** (`omeye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
-4. **Smoothing.** A One Euro filter smooths the gaze point a lot while it holds still and very little when it jumps. Blink frames (eyelids below 60% of your usual opening) are skipped.
-5. **Picking a window.** Gaze has to be 50 pixels inside a window's edge before that window counts, and the focused window extends 50 pixels past its own edges. That hysteresis stops jitter along a border from flipping focus.
-6. **Switching.** The same window must stay under your gaze for 0.4 s; glances away of up to 0.15 s (blinks) don't restart the count. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves. The mouse always wins.
+4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A fixation filter then holds the point still while your eyes rest: jitter within 6% of the screen width stays one fixation, and the point shows that fixation's median. It jumps only after three frames in a row land elsewhere and agree with each other, so a lone stray frame is ignored. Blink frames (eyelids below 60% of your usual opening) are skipped.
+5. **Picking a window.** Each frame's own point votes for the window under it. It has to be 50 pixels inside a window's edge to count for that window, and the focused window extends 50 pixels past its own edges, so votes near a border favour the window you're already in.
+6. **Switching.** A window takes focus when it holds 70% of the votes over a full 0.4 s. A few stray frames don't stop it, and a gaze split between two windows never switches. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves. The mouse always wins. In `omeye preview` the ring is the steady point, and an outline marks the window leading the vote, with its share.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
@@ -53,7 +54,7 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
 | `omeye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
 | `omeye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
 | `omeye cameras` | List cameras and mark the one in use |
-| `omeye bench [--seconds S]` | Landmark speed and processor load |
+| `omeye bench [--seconds S]` | Landmark speed, processor load, eye size in pixels and landmark jitter (look at one spot while it runs) |
 
 The camera view also appears, large, on the start screens of `calibrate` and `refine`, and in the bottom-right corner during `preview`. It draws a dot per face landmark, circles on the irises and the face outline: green when the face is well placed, amber near an edge of the image, red when it's cut off. Below it: the eye's width in pixels, brightness, frames per second and what to do about the camera's aim. Frames go to the overlay in memory and are never written to disk.
 
@@ -68,10 +69,13 @@ Optional, in `~/.config/omeye/config.toml`. Every key and its default is in [`om
 ```toml
 camera = "auto"          # or "/dev/video2", or part of the camera's name
 delegate = "cpu"         # "gpu" runs the landmark model on the integrated GPU
-dwell_ms = 400           # how long to look before focus moves
+dwell_ms = 400           # frames over this long vote on the window to focus
+vote_share = 0.7         # share of those frames a window needs
 typing_grace_ms = 700    # no switching until this long after the last key
 mouse_grace_ms = 2000    # the mouse wins for this long after it moves
 margin_px = 50           # border hysteresis
+fixation_radius = 0.06   # jitter within this share of the width stays one fixation
+offscreen = 0.15         # further outside the monitor than this counts as looking away
 ```
 
 ## Processor load
@@ -84,6 +88,20 @@ Measured on a Ryzen 7 5800H at 30 frames per second (fps), 1280×720, with a tes
 | integrated graphics processing unit (GPU), Radeon Vega | 9.7 ms per frame, 23% of one core | 8% |
 
 After 3 s without a face, omeye checks only every sixth frame. The service runs at `Nice=10`.
+
+## What the first calibration data showed
+
+Analysis of the first 1,342 calibration frames (15 dots plus 24 pointer cells, phone camera at 720p), with each dot or cell held out in turn:
+
+| | Error, share of the screen width |
+|---|---|
+| Model as built (basic features) | 6.6% |
+| Steady offset per spot / frame-to-frame jitter | 5.8% / 3.5% |
+| Average of 20 frames instead of one | 6.1% |
+| Eyes only / head only | 11.6% / 17.7% |
+| Full quadratic, kernel ridge, robust (Huber) fit | 6.5%, 7.0–9.6%, 6.7% |
+
+Up-down was weaker than left-right, and 5% of the frames landed off the screen. No model did better than the plain ridge fit, so the remaining error comes from the measurements, not the fitting. That led to the fixation filter and voting (to calm the output), clamping (off-screen points), and the rich feature set (better measurements).
 
 ## Traps found while building this
 
@@ -106,7 +124,7 @@ omeye/            Python package
   refine.py       pointer-following refinement
   samples.py      stored calibration samples
   focus.py        window hit test and dwell logic
-  filters.py      One Euro filter
+  filters.py      fixation filter
   activity.py     typing and mouse activity
   hypr.py         Hyprland socket
   overlay.py      GTK 4 overlay (system Python)

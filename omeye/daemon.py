@@ -7,8 +7,8 @@ import time
 
 from .activity import CursorWatch, InputActivity
 from .config import CALIBRATION_PATH, Config
-from .filters import OneEuro2D
-from .focus import Dwell, DwellParams, hit_test
+from .filters import FixationFilter
+from .focus import Vote, VoteParams, hit_test, on_screen
 from .hypr import Hypr, HyprError
 from .model import GazeModel
 from .overlay_client import OverlayProcess
@@ -78,8 +78,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     tracker = FaceTracker(delegate=cfg.delegate)
     activity = InputActivity(cfg.typing_grace_ms)
     cursor = CursorWatch()
-    gaze_filter = OneEuro2D(cfg.filter_min_cutoff, cfg.filter_beta)
-    dwell = Dwell(DwellParams.from_config(cfg))
+    fixation = FixationFilter(cfg.fixation_radius, cfg.fixation_confirm)
+    vote = Vote(VoteParams.from_config(cfg))
     overlay = OverlayProcess(model.monitor, "follow") if preview else None
     feed = CameraFeed(overlay, "corner") if overlay else None
     lost = cfg.lost_ms / 1000
@@ -104,8 +104,8 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                     log("camera stopped sending video")
                     cam.close()
                     cam = open_camera(cfg, model, stop)
-                    gaze_filter.reset()
-                    dwell.reset()
+                    fixation.reset()
+                    vote.reset()
                     last_face = last_frame = time.monotonic()
                 continue
             last_frame = now
@@ -125,18 +125,22 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
 
             if sample is not None and sample.openness < model.blink:
                 continue  # blink: hold everything as it is
+            # Each frame's own point votes for a window; the fixation filter
+            # gives the steady point the preview shows.
             target = gaze = None
             if sample is not None:
                 stats["faces"] += 1
                 if now - last_face > lost:
-                    gaze_filter.reset()
+                    fixation.reset()
                 last_face = now
-                nx, ny = gaze_filter(now, *model.predict(sample.feat))
-                if mon and -0.05 <= nx <= 1.05 and -0.05 <= ny <= 1.05:
-                    gaze = mon.to_global(nx, ny)
-                    target = hit_test(layout.windows, *gaze, layout.focused, cfg.margin_px)
+                point = on_screen(model.predict_sample(sample), cfg.offscreen) if mon else None
+                if point:
+                    target = hit_test(layout.windows, *mon.to_global(*point), layout.focused, cfg.margin_px)
+                    aspect = mon.h / mon.w
+                    fx, fy = fixation(point[0], point[1] * aspect)
+                    gaze = mon.to_global(fx, fy / aspect)
 
-            chosen = dwell.step(now, target, layout.focused, activity.last(now), cursor.last_move)
+            chosen = vote.step(now, target, layout.focused, activity.last(now), cursor.last_move)
             if chosen:
                 if dry_run:
                     log(f"would focus {chosen}")
@@ -151,11 +155,19 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
 
             if overlay and mon:
                 if gaze:
-                    overlay.send(cmd="gaze", x=gaze[0] - mon.x, y=gaze[1] - mon.y, on=target == layout.focused)
+                    on = hit_test(layout.windows, *gaze, layout.focused, cfg.margin_px) == layout.focused
+                    overlay.send(cmd="gaze", x=gaze[0] - mon.x, y=gaze[1] - mon.y, on=on)
                 else:
                     overlay.send(cmd="gaze")
-                busy = ("typing" if now - activity.last(now) < dwell.p.typing_grace
-                        else "mouse" if now - cursor.last_move < dwell.p.mouse_grace else "")
+                leader, share = vote.leader()
+                win = next((w for w in layout.windows if w.address == leader), None)
+                if win:
+                    overlay.send(cmd="rect", x=win.x - mon.x, y=win.y - mon.y, w=win.w, h=win.h,
+                                 label=f"{100 * share:.0f}% of votes", on=leader == layout.focused)
+                else:
+                    overlay.send(cmd="rect")
+                busy = ("typing" if now - activity.last(now) < vote.p.typing_grace
+                        else "mouse" if now - cursor.last_move < vote.p.mouse_grace else "")
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 overlay.send(cmd="text", text=f"omeye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))

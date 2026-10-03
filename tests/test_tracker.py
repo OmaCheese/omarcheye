@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from omeye.tracker import BUILT_IN, eye_features, head_pose
+from omeye.tracker import BLEND, BUILT_IN, RICH, eye_detail, eye_features, features, head_pose
 
 
 def eye(center=(100.0, 50.0), width=40.0, iris=(0.0, 0.0), roll=0.0, gap=10.0):
@@ -86,3 +86,19 @@ def test_framing_advice():
     assert "side" in framing_advice((0.1, 0.5), 0.05)
     assert "outside" in framing_advice((0.5, 0.5), 0.0)
     assert framing_advice((0.5, 0.45), 0.1) == ""
+
+
+def test_lids_and_rich_features():
+    p = eye(iris=(0.0, 0.1), gap=10.0)
+    u, v, up, lo = eye_detail(p, 0, 1, 2, 3, 4)
+    assert abs(up + 0.125) < 1e-9 and abs(lo - 0.125) < 1e-9 and abs(v - 0.1) < 1e-9
+
+    points = np.zeros((478, 2))
+    for base, (l, r, up_, lo_, iris) in ((100, (33, 133, 159, 145, 468)), (200, (362, 263, 386, 374, 473))):
+        e = eye(center=(base, 50))
+        points[[l, r, up_, lo_, iris]] = e
+    m = np.eye(4)
+    m[:3, 3] = (0, 0, -60)
+    s = features(points, m, 0.0, {n: 0.5 for n in BLEND})
+    assert s.rich is not None and len(s.rich) == len(RICH)
+    assert features(points, m, 0.0).rich is None

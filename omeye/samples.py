@@ -6,7 +6,7 @@ import numpy as np
 
 from .config import SAMPLES_PATH
 
-KEYS = ("feats", "opens", "groups", "targets")
+KEYS = ("feats", "rich", "opens", "groups", "targets")
 
 
 def load(camera: str, monitor: str) -> dict | None:
@@ -16,6 +16,8 @@ def load(camera: str, monitor: str) -> dict | None:
     with np.load(SAMPLES_PATH) as d:
         if "camera" not in d or str(d["camera"]) != camera or str(d["monitor"]) != monitor:
             return None
+        if any(k not in d for k in KEYS):
+            return None  # from an older omeye: start afresh
         return {k: d[k] for k in KEYS}
 
 

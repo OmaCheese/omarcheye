@@ -1,6 +1,7 @@
 import numpy as np
 
-from omeye.model import GazeModel, fit, inliers
+from omeye.model import GazeModel, fit, fit_samples, inliers
+from omeye.tracker import RICH
 
 
 def synthetic(n_dots=15, frames=25, noise=0.002, seed=1):
@@ -48,3 +49,26 @@ def test_inliers_drop_saccade_frames():
     f[3, 0] += 0.2  # one frame caught mid-saccade
     keep = inliers(f, g)
     assert not keep[3] and keep.mean() > 0.95
+
+
+def test_rich_features_win_when_they_carry_more():
+    """Vertical gaze hidden in the lids: the rich set sees it, the basic one barely."""
+    f, t, g = synthetic(noise=0.002)
+    rng = np.random.default_rng(5)
+    f[:, 1] = rng.normal(0, 0.01, len(f))  # basic v: no vertical signal left
+    rich = np.zeros((len(f), len(RICH)))
+    rich[:, 0] = rich[:, 2] = f[:, 0]
+    rich[:, 4] = 0.2 * (t[:, 1] - 0.5) + rng.normal(0, 0.002, len(f))  # upper lid follows gaze down
+    rich[:, -5:] = f[:, 2:]
+    opens = np.full(len(f), 0.25)
+    model, used, frames, errors = fit_samples(f, opens, g, t, 9 / 16, "TEST-1", "cam", rich=rich)
+    assert model.kind == "rich" and errors["rich"] < errors["basic"]
+
+
+def test_rich_model_round_trip(tmp_path):
+    f, t, g = synthetic()
+    rich = np.column_stack([f[:, 0], f[:, 1], f[:, 0], f[:, 1], np.zeros((len(f), 12)), f[:, 2:]])
+    model = fit(rich, t, g, 9 / 16, "TEST-1", 0.1, kind="rich")
+    model.save(tmp_path / "cal.json")
+    again = GazeModel.load(tmp_path / "cal.json")
+    assert again.kind == "rich" and again.predict(rich[3]) == model.predict(rich[3])

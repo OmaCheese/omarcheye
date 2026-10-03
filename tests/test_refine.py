@@ -5,7 +5,7 @@ import numpy as np
 from omeye import refine, samples
 from omeye.hypr import Monitor
 from omeye.model import MOUSE, fit_samples
-from omeye.tracker import Sample
+from omeye.tracker import RICH, Sample
 
 
 def test_pointer_still():
@@ -59,7 +59,9 @@ def test_collect_fills_cells_and_fits(monkeypatch):
 
     class Tracker:
         def process(self, frame, t):
-            return Sample(t, eyes(*path(t), rng), 0.25)
+            feat = eyes(*path(t), rng)
+            rich = np.concatenate([[feat[0], feat[1], feat[0], feat[1]], np.zeros(12), feat[2:]])
+            return Sample(t, feat, 0.25, rich=rich)
 
     class Hypr:
         def cursor(self):
@@ -77,15 +79,19 @@ def test_collect_fills_cells_and_fits(monkeypatch):
     assert cells == set(range(refine.COLS * refine.ROWS))
     assert clock.t < 40  # stopped once every cell was covered, not at the time limit
 
-    model, used, frames = fit_samples(data["feats"], data["opens"], data["groups"], data["targets"],
-                                      9 / 16, "TEST-1", "cam", score={MOUSE + c for c in cells})
+    assert data["rich"].shape == (len(data["groups"]), len(RICH))
+    model, used, frames, errors = fit_samples(data["feats"], data["opens"], data["groups"], data["targets"],
+                                              9 / 16, "TEST-1", "cam", score={MOUSE + c for c in cells},
+                                              rich=data["rich"])
+    assert set(errors) == {"basic", "rich"} and model.error == min(errors.values())
     assert model.error < 0.05
     assert len(used) == len(cells)
 
 
 def test_samples_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(samples, "SAMPLES_PATH", tmp_path / "s.npz")
-    a = {"feats": np.ones((3, 7)), "opens": np.ones(3), "groups": np.arange(3), "targets": np.zeros((3, 2))}
+    a = {"feats": np.ones((3, 7)), "rich": np.ones((3, len(RICH))), "opens": np.ones(3), "groups": np.arange(3),
+         "targets": np.zeros((3, 2))}
     samples.save("cam", "MON", a)
     back = samples.load("cam", "MON")
     assert back is not None and np.array_equal(back["groups"], a["groups"])

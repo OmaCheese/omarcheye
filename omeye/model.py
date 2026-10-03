@@ -3,8 +3,10 @@
 Ridge regression on standardised features plus the quadratic eye terms
 (u², v², uv). The ridge strength is picked by leave-one-dot-out
 cross-validation, and that same error is the accuracy calibration reports.
-Outputs are monitor fractions (0..1 across, 0..1 down), so a calibration
-stays valid when the monitor's scale or resolution changes.
+Two feature sets are fitted ("basic" and "rich", see tracker.py) and the one
+with the lower cross-validated error is kept. Outputs are monitor fractions
+(0..1 across, 0..1 down), so a calibration stays valid when the monitor's
+scale or resolution changes.
 """
 
 import json
@@ -14,15 +16,25 @@ from pathlib import Path
 
 import numpy as np
 
-from .tracker import FEATURES
+from .tracker import FEATURES, RICH, Sample
+
+KINDS = {"basic": FEATURES, "rich": RICH}
 
 LAMBDAS = (1e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.3, 1.0)
 
 
-def expand(f: np.ndarray) -> np.ndarray:
+def expand(f: np.ndarray, kind: str = "basic") -> np.ndarray:
     f = np.atleast_2d(f)
-    u, v = f[:, 0], f[:, 1]
+    if kind == "rich":
+        u, v = (f[:, 0] + f[:, 2]) / 2, (f[:, 1] + f[:, 3]) / 2
+    else:
+        u, v = f[:, 0], f[:, 1]
     return np.column_stack([f, u * u, v * v, u * v])
+
+
+def vectors(data: dict, kind: str) -> np.ndarray:
+    """The feature matrix of a sample set for one kind of model."""
+    return data["rich"] if kind == "rich" else data["feats"]
 
 
 def _ridge(z: np.ndarray, y: np.ndarray, lam: float) -> np.ndarray:
@@ -61,15 +73,19 @@ class GazeModel:
     error: float  # cross-validated mean error (leave one dot or cell out), in monitor widths
     camera: str = ""
     created: str = ""
+    kind: str = "basic"  # which feature set: see KINDS
 
     def predict(self, feat: np.ndarray) -> tuple[float, float]:
-        z = (expand(feat)[0] - self.mean) / self.std
+        z = (expand(feat, self.kind)[0] - self.mean) / self.std
         x, y = z @ self.coef + self.intercept
         return float(x), float(y)
 
+    def predict_sample(self, s: Sample) -> tuple[float, float]:
+        return self.predict(s.rich if self.kind == "rich" else s.feat)
+
     def group_error(self, f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float) -> float:
         """Mean distance from prediction to target, averaged per group, in monitor widths."""
-        z = (expand(f) - self.mean) / self.std
+        z = (expand(f, self.kind) - self.mean) / self.std
         d = z @ self.coef + self.intercept - targets
         e = np.hypot(d[:, 0], d[:, 1] * aspect)
         return float(np.mean([e[groups == g].mean() for g in np.unique(groups)]))
@@ -77,13 +93,13 @@ class GazeModel:
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in self.__dict__.items()}
-        data["features"] = list(FEATURES)
+        data["features"] = list(KINDS[self.kind])
         path.write_text(json.dumps(data, indent=1) + "\n")
 
     @classmethod
     def load(cls, path: Path) -> "GazeModel":
         data = json.loads(path.read_text())
-        if data.pop("features", None) != list(FEATURES):
+        if data.pop("features", None) != list(KINDS.get(data.get("kind", "basic"), ())):
             raise ValueError(f"{path} was made by another omeye version; run `omeye calibrate` again")
         for k in ("mean", "std", "coef", "intercept"):
             data[k] = np.array(data[k])
@@ -95,12 +111,13 @@ MOUSE = 1000  # group ids from here up are pointer cells (omeye refine); below a
 
 
 def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
-        monitor: str, blink: float, camera: str = "", score: set[int] | None = None) -> GazeModel:
+        monitor: str, blink: float, camera: str = "", score: set[int] | None = None,
+        kind: str = "basic") -> GazeModel:
     """f: (n, features) frames; targets: (n, 2) monitor fractions of where
     each frame was looking; groups: dot or cell per frame; aspect: height/width.
     The reported error is the cross-validated error over the `score` groups
     (default: all of them)."""
-    x = expand(f)
+    x = expand(f, kind)
     mean, std = x.mean(0), x.std(0)
     std[std < 1e-9] = 1.0
     z = (x - mean) / std
@@ -119,12 +136,16 @@ def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
     scored = [e for g, e in per_lam[lam].items() if score is None or g in score]
     error = float(np.mean(scored or list(per_lam[lam].values())))
     coef, b = _solve(z, targets, lam)
-    return GazeModel(monitor, mean, std, coef, b, lam, blink, error, camera, time.strftime("%Y-%m-%dT%H:%M:%S"))
+    return GazeModel(monitor, mean, std, coef, b, lam, blink, error, camera,
+                     time.strftime("%Y-%m-%dT%H:%M:%S"), kind)
 
 
 def fit_samples(feats: np.ndarray, opens: np.ndarray, groups: np.ndarray, targets: np.ndarray,
-                aspect: float, monitor: str, camera: str, score: set[int] | None = None):
-    """Drop blinks and stray frames, then fit. Returns (model, groups used, frames used)."""
+                aspect: float, monitor: str, camera: str, score: set[int] | None = None,
+                rich: np.ndarray | None = None):
+    """Drop blinks and stray frames, then fit each feature set there is data
+    for and keep the best. Returns (model, groups used, frames used,
+    {kind: cross-validated error})."""
     blink = 0.6 * float(np.median(opens))
     keep = opens >= blink
     dots = keep & (groups < MOUSE)
@@ -134,6 +155,9 @@ def fit_samples(feats: np.ndarray, opens: np.ndarray, groups: np.ndarray, target
     used = sorted(g for g, c in counts.items() if c >= MIN_FRAMES)
     if not used:
         raise ValueError("no dot or cell had enough clear frames")
-    model = fit(feats[keep], targets[keep], groups[keep], aspect, monitor, blink, camera,
-                None if score is None else score & set(used))
-    return model, used, int(keep.sum())
+    scored = None if score is None else score & set(used)
+    models = [fit(feats[keep], targets[keep], groups[keep], aspect, monitor, blink, camera, scored)]
+    if rich is not None and len(rich) == len(feats):
+        models.append(fit(rich[keep], targets[keep], groups[keep], aspect, monitor, blink, camera, scored, "rich"))
+    best = min(models, key=lambda m: m.error)
+    return best, used, int(keep.sum()), {m.kind: m.error for m in models}

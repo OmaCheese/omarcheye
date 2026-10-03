@@ -11,7 +11,7 @@ from .hypr import Hypr
 from .model import fit_samples
 from .overlay_client import OverlayProcess
 from .camview import CameraFeed
-from .tracker import Camera, FaceTracker, framing_advice, list_cameras, pick_camera
+from .tracker import FEATURES, RICH, Camera, FaceTracker, framing_advice, list_cameras, pick_camera
 
 SETTLE = 0.9  # seconds for the eyes to land on a new dot
 COLLECT = 1.1  # seconds of frames kept per dot
@@ -28,6 +28,13 @@ INTRO = (
 
 class Cancelled(Exception):
     pass
+
+
+def compare(errors: dict[str, float], kind: str) -> str:
+    """One line on which feature set won, e.g. "rich features 5.1%, basic 6.6%: using rich"."""
+    if len(errors) < 2:
+        return ""
+    return ", ".join(f"{k} features {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) + f": using {kind}"
 
 
 def grid(n: int) -> list[tuple[float, float]]:
@@ -79,7 +86,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
 
 
 def _collect(ov, cam, tracker, dots, width, height):
-    feats, opens, groups, targets, framing = [], [], [], [], []
+    feats, rich, opens, groups, targets, framing = [], [], [], [], [], []
     for i, (nx, ny) in enumerate(dots):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
         start = last_frame = time.monotonic()
@@ -94,14 +101,17 @@ def _collect(ov, cam, tracker, dots, width, height):
             s = tracker.process(frame, time.monotonic())
             if s is not None and elapsed >= SETTLE:
                 framing.append((*s.pos, s.margin))
-                if s.cut_off:
+                if s.cut_off or s.rich is None:
                     continue
                 feats.append(s.feat)
+                rich.append(s.rich)
                 opens.append(s.openness)
                 groups.append(i)
                 targets.append((nx, ny))
     ov.send(cmd="dot")
-    return np.array(feats), np.array(opens), np.array(groups), np.array(targets), np.array(framing)
+    data = {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
+            "opens": np.array(opens), "groups": np.array(groups, int), "targets": np.array(targets).reshape(-1, 2)}
+    return data, np.array(framing).reshape(-1, 3)
 
 
 def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
@@ -131,18 +141,18 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         wait_for_start(ov, cam, tracker, info.name, note)
         dots = grid(points or cfg.calibration_points)
         random.shuffle(dots)
-        f, opens, groups, targets, framing = _collect(ov, cam, tracker, dots, width, height)
+        data, framing = _collect(ov, cam, tracker, dots, width, height)
         ov.send(cmd="text", text="Fitting…")
-        data = {"feats": f, "opens": opens, "groups": groups, "targets": targets}
         samples.save(info.name, mon.name, data, framing=framing, size=np.array([width, height]))
 
         advice = ""
         if len(framing):
             advice = framing_advice(tuple(np.median(framing[:, :2], 0)), float(np.median(framing[:, 2])))
-        if len(f) == 0:
+        if len(data["groups"]) == 0:
             raise RuntimeError("no usable face frames" + (f". {advice}" if advice else ""))
         try:
-            model, used, n_frames = fit_samples(f, opens, groups, targets, height / width, mon.name, info.name)
+            model, used, n_frames, errors = fit_samples(data["feats"], data["opens"], data["groups"], data["targets"],
+                                                        height / width, mon.name, info.name, rich=data["rich"])
         except ValueError:
             used, n_frames = [], 0
         if len(used) < MIN_DOTS:
@@ -153,7 +163,7 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
         err_px = model.error * width
         err_cm = f" ≈ {model.error * mm / 10:.1f} cm" if mm else ""
         summary = (f"Typical error {err_px:.0f} px{err_cm}, {100 * model.error:.0f}% of the screen width "
-                   f"({len(used)}/{len(dots)} dots, {n_frames} frames)")
+                   f"({len(used)}/{len(dots)} dots, {n_frames} frames)\n{compare(errors, model.kind)}")
         if model.error > POOR:
             why = advice or "Check that the camera sees your eyes clearly, and look straight at each dot"
             title, summary = "Calibration is poor: eye focus will jump around", f"{summary}\n\n{why}"
