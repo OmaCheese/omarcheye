@@ -47,7 +47,7 @@ def run(cfg: Config) -> int:
         print(f"omarcheye: {e}")
         return 1
 
-    tracker = FaceTracker(delegate=cfg.delegate)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "calibrate")
     try:

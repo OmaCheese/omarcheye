@@ -53,6 +53,7 @@ class Sample:
     points: np.ndarray | None = None  # all landmarks in image pixels, for the camera view
     rich: np.ndarray | None = None  # ordered as RICH
     pose: np.ndarray | None = None  # MediaPipe's face transformation matrix, flattened (16): rotation, position in cm
+    net: np.ndarray | None = None  # eyenet.FEATURES from full-resolution eye crops; None when not run or unusable
 
     @property
     def cut_off(self) -> bool:
@@ -144,7 +145,7 @@ def integrated_gpu() -> str | None:
 
 
 class FaceTracker:
-    def __init__(self, model_path: Path = MODEL_PATH, delegate: str = "cpu"):
+    def __init__(self, model_path: Path = MODEL_PATH, delegate: str = "cpu", eyenet: bool = True):
         if not model_path.exists():
             raise FileNotFoundError(f"{model_path} is missing; run ./install.sh")
         if delegate == "gpu":
@@ -169,6 +170,14 @@ class FaceTracker:
             output_face_blendshapes=True,
         )
         self.landmarker = vision.FaceLandmarker.create_from_options(options)
+        # The eye network (eyenet.py) reads each eye from the full-resolution
+        # frame; without its model file omarcheye runs on the landmarks alone.
+        self.eyenet = None
+        if eyenet:
+            from .eyenet import EYENET_PATH, EyeNet
+
+            if EYENET_PATH.exists():
+                self.eyenet = EyeNet()
         self.last_ms = -1
 
     def process(self, frame_bgr: np.ndarray, t: float) -> Sample | None:
@@ -186,6 +195,8 @@ class FaceTracker:
         sample.pos = (float(lo[0] + hi[0]) / 2 / w, float(lo[1] + hi[1]) / 2 / h)
         sample.margin = float(min(lo[0] / w, lo[1] / h, 1 - hi[0] / w, 1 - hi[1] / h))
         sample.points = points
+        if self.eyenet is not None:
+            sample.net = self.eyenet(frame_bgr, points, result.facial_transformation_matrixes[0])
         return sample
 
     def close(self) -> None:

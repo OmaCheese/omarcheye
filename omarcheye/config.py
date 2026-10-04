@@ -35,6 +35,9 @@ class Config:
     # Where the landmark model runs: "cpu", or "gpu" = the integrated GPU
     # (OpenGL ES through Mesa; the NVIDIA card is skipped).
     delegate: str = "cpu"
+    # Also read the gaze from full-resolution eye crops with a small network
+    # (eyenet.py, about 5 ms a frame); calibration uses it when it predicts better.
+    eyenet: bool = True
 
     # Monitor the camera sits on; "" = the monitor focused at calibration.
     monitor: str = ""

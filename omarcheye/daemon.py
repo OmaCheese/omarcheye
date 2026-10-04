@@ -120,7 +120,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
 
-    tracker = FaceTracker(delegate=cfg.delegate)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
     activity = InputActivity(cfg.typing_grace_ms)
     cursor = CursorWatch()
     smooth = OneEuro2D(cfg.filter_min_cutoff, cfg.filter_beta)  # the point the preview shows

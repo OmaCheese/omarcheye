@@ -96,3 +96,21 @@ def test_choose_prefers_geometry_within_the_margin():
     assert choose([basic, geo]) is geo
     geo.error = 0.12
     assert choose([basic, geo]) is basic
+
+
+def test_eye_network_model_is_fitted_and_wins_when_it_sees_more():
+    """The network's hit point carries the gaze cleanly; the landmarks are noisy.
+    Frames the network couldn't read (NaN) are left out of its fit only."""
+    from omarcheye.tracker import Sample
+
+    f, t, g = synthetic(noise=0.03, seed=3)
+    rng = np.random.default_rng(3)
+    rich = np.column_stack([f[:, 0], f[:, 1], f[:, 0], f[:, 1], np.zeros((len(f), 12)), f[:, 2:]])
+    net = np.column_stack([np.zeros((len(f), 2)), 30 * (t - 0.5) + rng.normal(0, 0.05, t.shape)])
+    net[::7] = np.nan
+    data = {"feats": f, "rich": rich, "net": net, "opens": np.full(len(f), 0.25), "groups": g, "targets": t}
+    model, _, _, errors = fit_samples(data, 9 / 16, "TEST-1", "cam")
+    assert model.kind == "eyenet" and errors["eyenet"] < errors["rich"] / 2
+    x, y = model.predict_sample(Sample(0.0, f[1], 0.25, rich=rich[1], net=net[1]))
+    assert abs(x - t[1, 0]) < 0.05 and abs(y - t[1, 1]) < 0.05
+    assert all(map(np.isnan, model.predict_sample(Sample(0.0, f[1], 0.25, rich=rich[1], net=None))))

@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 from . import samples
+from .samples import NET
 from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
 from .model import fit_samples
@@ -34,7 +35,7 @@ def compare(errors: dict[str, float], kind: str) -> str:
     """One line on which feature set won, e.g. "rich features 5.1%, basic 6.6%: using rich"."""
     if len(errors) < 2:
         return ""
-    names = {"basic": "basic features", "rich": "rich features", "geometric": "geometric model"}
+    names = {"basic": "basic features", "rich": "rich features", "eyenet": "eye network", "geometric": "geometric model"}
     why = " (it holds up better when you sit differently)" if errors[kind] > min(errors.values()) else ""
     return ", ".join(f"{names.get(k, k)} {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) \
         + f": using {names.get(kind, kind)}{why}"
@@ -89,7 +90,7 @@ def wait_for_start(ov: OverlayProcess, cam: Camera, tracker: FaceTracker, camera
 
 
 def _collect(ov, cam, tracker, dots, width, height):
-    feats, rich, pose, opens, groups, targets, framing = [], [], [], [], [], [], []
+    feats, rich, pose, net, opens, groups, targets, framing = [], [], [], [], [], [], [], []
     for i, (nx, ny) in enumerate(dots):
         ov.send(cmd="dot", x=nx * width, y=ny * height, ms=(SETTLE + COLLECT) * 1000)
         start = last_frame = time.monotonic()
@@ -109,12 +110,13 @@ def _collect(ov, cam, tracker, dots, width, height):
                 feats.append(s.feat)
                 rich.append(s.rich)
                 pose.append(s.pose)
+                net.append(s.net if s.net is not None else np.full(NET, np.nan))
                 opens.append(s.openness)
                 groups.append(i)
                 targets.append((nx, ny))
     ov.send(cmd="dot")
     data = {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
-            "pose": np.array(pose).reshape(-1, 16), "opens": np.array(opens), "groups": np.array(groups, int),
+            "pose": np.array(pose).reshape(-1, 16), "net": np.array(net).reshape(-1, NET), "opens": np.array(opens), "groups": np.array(groups, int),
             "targets": np.array(targets).reshape(-1, 2)}
     return data, np.array(framing).reshape(-1, 3)
 
@@ -137,7 +139,7 @@ def run(cfg: Config, monitor: str = "", points: int = 0) -> int:
     note = idle[0].not_live_reason() if info.builtin and idle else ""
     print(f"omarcheye: calibrating {mon.name} with {info.name} ({info.device})")
 
-    tracker = FaceTracker(delegate=cfg.delegate)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "calibrate")
     try:

@@ -22,7 +22,7 @@ from .tracker import Camera, FaceTracker, pick_camera
 
 DOTS = [(x, y) for y in (0.2, 0.5, 0.8) for x in (0.15, 0.5, 0.85)]  # between the calibration dots
 BETTER = 0.9  # another kind must beat the current one by 10% to be offered
-NAMES = {"basic": "basic features", "rich": "rich features", "geometric": "geometric model"}
+NAMES = {"basic": "basic features", "rich": "rich features", "eyenet": "eye network", "geometric": "geometric model"}
 
 INTRO = (
     "omarcheye test\n\n"
@@ -49,7 +49,7 @@ def run(cfg: Config) -> int:
         return 1
     screen_mm = hypr.physical_mm(mon.name)
 
-    tracker = FaceTracker(delegate=cfg.delegate)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "calibrate")
     try:

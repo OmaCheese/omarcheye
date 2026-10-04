@@ -3,13 +3,15 @@
 Ridge regression on standardised features plus the quadratic eye terms
 (u², v², uv). The ridge strength is picked by leave-one-dot-out
 cross-validation, and that same error is the accuracy calibration reports.
-Two feature sets are fitted ("basic" and "rich", see tracker.py) and the one
-with the lower cross-validated error is kept. Outputs are monitor fractions
+Three feature sets are fitted ("basic" and "rich", see tracker.py, and
+"eyenet": rich plus where the eye network's gaze ray meets the camera's
+plane, see eyenet.py) and the one with the lower cross-validated error is kept. Outputs are monitor fractions
 (0..1 across, 0..1 down), so a calibration stays valid when the monitor's
 scale or resolution changes.
 """
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +20,7 @@ import numpy as np
 
 from .tracker import FEATURES, RICH, Sample
 
-KINDS = {"basic": FEATURES, "rich": RICH}
+KINDS = {"basic": FEATURES, "rich": RICH, "eyenet": ("hitx", "hity", *RICH)}
 
 # Smallest spread a head feature is scaled by (yaw, pitch in radians; hx, hy
 # per unit distance; hz in MediaPipe's cm). Calibration often holds the head
@@ -40,8 +42,9 @@ LAMBDAS = (1e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.3, 1.0)
 
 def expand(f: np.ndarray, kind: str = "basic") -> np.ndarray:
     f = np.atleast_2d(f)
-    if kind == "rich":
-        u, v = (f[:, 0] + f[:, 2]) / 2, (f[:, 1] + f[:, 3]) / 2
+    if kind in ("rich", "eyenet"):
+        r = f[:, 2:] if kind == "eyenet" else f  # the rich block
+        u, v = (r[:, 0] + r[:, 2]) / 2, (r[:, 1] + r[:, 3]) / 2
     else:
         u, v = f[:, 0], f[:, 1]
     return np.column_stack([f, u * u, v * v, u * v])
@@ -49,6 +52,8 @@ def expand(f: np.ndarray, kind: str = "basic") -> np.ndarray:
 
 def vectors(data: dict, kind: str) -> np.ndarray:
     """The feature matrix of a sample set for one kind of model."""
+    if kind == "eyenet":
+        return np.hstack([data["net"][:, 2:4], data["rich"]])
     return data["rich"] if kind == "rich" else data["feats"]
 
 
@@ -103,6 +108,10 @@ class GazeModel:
         return float(x), float(y)
 
     def predict_sample(self, s: Sample) -> tuple[float, float]:
+        if self.kind == "eyenet":
+            if s.net is None or s.rich is None:
+                return math.nan, math.nan  # the network couldn't read the eyes this frame
+            return self.predict(np.concatenate([s.net[2:4], s.rich]))
         return self.predict(s.rich if self.kind == "rich" else s.feat)
 
     def predict_data(self, data: dict) -> np.ndarray:
@@ -136,6 +145,7 @@ class GazeModel:
 
 
 MIN_FRAMES = 8  # a dot or cell with fewer usable frames is left out
+MIN_GROUPS = 6  # the eye network's model needs at least this many dots or cells it could read
 MOUSE = 1000  # group ids from here up are pointer cells (omarcheye refine); below are dots
 
 
@@ -209,6 +219,17 @@ def prepare(data: dict) -> tuple[np.ndarray, list[int], float]:
     return keep, sorted(g for g, c in counts.items() if c >= MIN_FRAMES), blink
 
 
+def eyenet_frames(d: dict) -> np.ndarray | None:
+    """Which frames the eye network read, if enough dots or cells have
+    MIN_FRAMES of them to fit on (None otherwise)."""
+    if "net" not in d or not len(d["net"]):
+        return None
+    ok = np.isfinite(d["net"]).all(1)
+    counts = {int(g): int((ok & (d["groups"] == g)).sum()) for g in np.unique(d["groups"])}
+    keep = ok & np.array([counts[int(g)] >= MIN_FRAMES for g in d["groups"]], bool)
+    return keep if len({int(g) for g in d["groups"][keep]}) >= MIN_GROUPS else None
+
+
 def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int] | None = None,
             screen_mm: tuple[float, float] | None = None) -> tuple[list, list[int], int]:
     """Every model there is data for: the basic and rich regressions, and the
@@ -222,6 +243,11 @@ def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int
     models = [fit(d["feats"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored)]
     if "rich" in d and len(d["rich"]):
         models.append(fit(d["rich"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored, "rich"))
+        net = eyenet_frames(d)
+        if net is not None:
+            n = subset(d, net)
+            models.append(fit(vectors(n, "eyenet"), n["targets"], n["groups"], aspect, monitor, blink, camera,
+                              None if scored is None else scored & set(np.unique(n["groups"]).tolist()), "eyenet"))
         if screen_mm and "pose" in d and len(d["pose"]):
             from . import geometry
 

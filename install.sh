@@ -30,6 +30,15 @@ if [[ ! -s $data/models/face_landmarker.task ]]; then
   mv "$data/models/face_landmarker.task.part" "$data/models/face_landmarker.task"
 fi
 
+say "Eye network (Intel Open Model Zoo gaze-estimation-adas-0002, Apache-2.0)"
+eyenet_url=https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/gaze-estimation-adas-0002/FP32/gaze-estimation-adas-0002
+for ext in xml bin; do
+  if [[ ! -s $data/models/gaze-estimation-adas-0002.$ext ]]; then
+    curl -fsSLo "$data/models/gaze-estimation-adas-0002.$ext.part" "$eyenet_url.$ext"
+    mv "$data/models/gaze-estimation-adas-0002.$ext.part" "$data/models/gaze-estimation-adas-0002.$ext"
+  fi
+done
+
 say "Input-activity helper"
 make -C "$root" --quiet
 

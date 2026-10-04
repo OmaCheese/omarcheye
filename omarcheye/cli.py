@@ -175,7 +175,7 @@ def cmd_bench(cfg, args) -> int:
         return 1
     print("omarcheye: look at one spot on the screen until it finishes")
     with camera_free():
-        tracker = FaceTracker(delegate=cfg.delegate)
+        tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
         cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
         print(f"omarcheye: {args.seconds} s on {info.name} ({info.device}) at {'x'.join(map(str, cam.size()))}, "
               f"landmarks on {cfg.delegate.upper()}")

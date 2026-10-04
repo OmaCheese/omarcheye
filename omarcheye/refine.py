@@ -16,6 +16,7 @@ from collections import deque
 import numpy as np
 
 from . import samples
+from .samples import NET
 from .calibrate import Cancelled, check_keys, compare, wait_for_start
 from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
@@ -53,7 +54,7 @@ def cell(nx: float, ny: float) -> int:
 
 
 def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
-    feats, rich, pose, opens, groups, targets = [], [], [], [], [], []
+    feats, rich, pose, net, opens, groups, targets = [], [], [], [], [], [], []
     counts = np.zeros(COLS * ROWS, int)
     history: deque = deque(maxlen=90)
     end = time.monotonic() + seconds
@@ -80,6 +81,7 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
             feats.append(s.feat)
             rich.append(s.rich)
             pose.append(s.pose)
+            net.append(s.net if s.net is not None else np.full(NET, np.nan))
             opens.append(s.openness)
             groups.append(MOUSE + c)
             targets.append((nx, ny))
@@ -91,7 +93,7 @@ def _collect(ov, cam, tracker, hypr, mon, seconds, aspect):
                     f"   {max(0, end - now):.0f} s left\n\nEnter: finish now      Esc: cancel")
     ov.send(cmd="grid")
     return {"feats": np.array(feats).reshape(-1, len(FEATURES)), "rich": np.array(rich).reshape(-1, len(RICH)),
-            "pose": np.array(pose).reshape(-1, 16), "opens": np.array(opens), "groups": np.array(groups, int),
+            "pose": np.array(pose).reshape(-1, 16), "net": np.array(net).reshape(-1, NET), "opens": np.array(opens), "groups": np.array(groups, int),
             "targets": np.array(targets).reshape(-1, 2)}
 
 
@@ -116,7 +118,7 @@ def run(cfg: Config, seconds: float = 60) -> int:
     print(f"omarcheye: refining {mon.name} with {info.name}"
           + (f" ({len(stored['groups'])} stored samples)" if stored else " (no stored samples)"))
 
-    tracker = FaceTracker(delegate=cfg.delegate)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "calibrate")
     try:
