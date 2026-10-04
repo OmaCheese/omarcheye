@@ -54,6 +54,7 @@ class Sample:
     rich: np.ndarray | None = None  # ordered as RICH
     pose: np.ndarray | None = None  # MediaPipe's face transformation matrix, flattened (16): rotation, position in cm
     net: np.ndarray | None = None  # eyenet.FEATURES from full-resolution eye crops; None when not run or unusable
+    desc: np.ndarray | None = None  # eyepatch.eye_descriptor: both eyes' HOG at full resolution (appearance.py)
 
     @property
     def cut_off(self) -> bool:
@@ -145,7 +146,8 @@ def integrated_gpu() -> str | None:
 
 
 class FaceTracker:
-    def __init__(self, model_path: Path = MODEL_PATH, delegate: str = "cpu", eyenet: bool = True):
+    def __init__(self, model_path: Path = MODEL_PATH, delegate: str = "cpu", eyenet: bool = True,
+                 patches: bool = True):
         if not model_path.exists():
             raise FileNotFoundError(f"{model_path} is missing; run ./install.sh")
         if delegate == "gpu":
@@ -178,6 +180,7 @@ class FaceTracker:
 
             if EYENET_PATH.exists():
                 self.eyenet = EyeNet()
+        self.patches = patches  # also describe each eye's full-resolution patch (eyepatch.py)
         self.last_ms = -1
 
     def process(self, frame_bgr: np.ndarray, t: float) -> Sample | None:
@@ -197,6 +200,10 @@ class FaceTracker:
         sample.points = points
         if self.eyenet is not None:
             sample.net = self.eyenet(frame_bgr, points, result.facial_transformation_matrixes[0])
+        if self.patches and not sample.cut_off:
+            from .eyepatch import eye_descriptor
+
+            sample.desc = eye_descriptor(frame_bgr, points)
         return sample
 
     def close(self) -> None:

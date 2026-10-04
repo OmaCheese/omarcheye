@@ -100,7 +100,7 @@ def run_script(monkeypatch, tmp_path, frames: list[Look | None], hook=None) -> t
     monkeypatch.setattr(daemon, "load_model", lambda path: FakeModel())
     monkeypatch.setattr(daemon, "Hypr", lambda: hypr)
     monkeypatch.setattr(daemon, "LayoutPoller", SyncPoller)
-    monkeypatch.setattr(daemon, "FaceTracker", lambda delegate, eyenet=True: types.SimpleNamespace(
+    monkeypatch.setattr(daemon, "FaceTracker", lambda delegate, eyenet=True, patches=True: types.SimpleNamespace(
         process=lambda frame, now: frame, close=lambda: None))
     monkeypatch.setattr(daemon, "InputActivity", lambda grace: types.SimpleNamespace(
         last=lambda now: -math.inf, close=lambda: None))

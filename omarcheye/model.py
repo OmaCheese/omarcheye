@@ -185,10 +185,15 @@ def fit(f: np.ndarray, targets: np.ndarray, groups: np.ndarray, aspect: float,
 
 def load_model(path: Path):
     """A saved calibration, whichever kind it is."""
-    if json.loads(path.read_text()).get("kind") == "geometric":
+    kind = json.loads(path.read_text()).get("kind")
+    if kind == "geometric":
         from .geometry import GeoModel
 
         return GeoModel.load(path)
+    if kind == "appearance":
+        from .appearance import AppearanceModel
+
+        return AppearanceModel.load(path)
     return GazeModel.load(path)
 
 
@@ -230,6 +235,17 @@ def eyenet_frames(d: dict) -> np.ndarray | None:
     return keep if len({int(g) for g in d["groups"][keep]}) >= MIN_GROUPS else None
 
 
+def described_frames(d: dict) -> np.ndarray | None:
+    """Frames with an eye descriptor, if enough dots or cells have
+    MIN_FRAMES of them for the appearance model (None otherwise)."""
+    if "desc" not in d or not len(d["desc"]):
+        return None
+    ok = np.isfinite(d["desc"][:, 0])
+    counts = {int(g): int((ok & (d["groups"] == g)).sum()) for g in np.unique(d["groups"])}
+    keep = ok & np.array([counts[int(g)] >= MIN_FRAMES for g in d["groups"]], bool)
+    return keep if len({int(g) for g in d["groups"][keep]}) >= MIN_GROUPS else None
+
+
 def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int] | None = None,
             screen_mm: tuple[float, float] | None = None) -> tuple[list, list[int], int]:
     """Every model there is data for: the basic and rich regressions, and the
@@ -243,6 +259,12 @@ def fit_all(data: dict, aspect: float, monitor: str, camera: str, score: set[int
     models = [fit(d["feats"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored)]
     if "rich" in d and len(d["rich"]):
         models.append(fit(d["rich"], d["targets"], d["groups"], aspect, monitor, blink, camera, scored, "rich"))
+        app = described_frames(d)
+        if app is not None:
+            from . import appearance
+
+            a = subset(d, app)
+            models.append(appearance.fit(a, a["groups"], aspect, monitor, blink, camera))
         net = eyenet_frames(d)
         if net is not None:
             n = subset(d, net)

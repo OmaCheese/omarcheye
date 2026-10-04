@@ -6,8 +6,17 @@ import numpy as np
 
 from .config import SAMPLES_PATH
 
-KEYS = ("feats", "rich", "pose", "opens", "groups", "targets", "net")
-NET = 4  # eyenet.FEATURES; samples from before the eye network get NaN there
+KEYS = ("feats", "rich", "pose", "opens", "groups", "targets", "net", "desc")
+NET = 4  # eyenet.FEATURES
+DESC = 3240  # eyepatch.eye_descriptor, kept as float16: numbers, not an image
+OPTIONAL = {"net": (NET, np.float64), "desc": (DESC, np.float16)}  # samples from before them get NaN
+
+
+def _fill(data: dict) -> dict:
+    for k, (width, dtype) in OPTIONAL.items():
+        if k not in data:
+            data[k] = np.full((len(data["groups"]), width), np.nan, dtype)
+    return data
 
 
 def load(camera: str, monitor: str) -> dict | None:
@@ -17,16 +26,15 @@ def load(camera: str, monitor: str) -> dict | None:
     with np.load(SAMPLES_PATH) as d:
         if "camera" not in d or str(d["camera"]) != camera or str(d["monitor"]) != monitor:
             return None
-        if any(k not in d for k in KEYS if k != "net"):
+        if any(k not in d for k in KEYS if k not in OPTIONAL):
             return None  # from an older omarcheye: start afresh
         data = {k: d[k] for k in KEYS if k in d}
-    data.setdefault("net", np.full((len(data["groups"]), NET), np.nan))
-    return data
+    return _fill(data)
 
 
 def save(camera: str, monitor: str, data: dict, **extra) -> None:
     SAMPLES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    data.setdefault("net", np.full((len(data["groups"]), NET), np.nan))
+    _fill(data)
     np.savez(SAMPLES_PATH, camera=np.array(camera), monitor=np.array(monitor),
              **{k: data[k] for k in KEYS}, **extra)
 
@@ -34,6 +42,6 @@ def save(camera: str, monitor: str, data: dict, **extra) -> None:
 def merge(old: dict | None, new: dict) -> dict:
     if old is None or len(old["groups"]) == 0:
         return new
-    for d in (old, new):
-        d.setdefault("net", np.full((len(d["groups"]), NET), np.nan))
+    _fill(old)
+    _fill(new)
     return {k: np.concatenate([old[k], new[k]]) for k in KEYS}

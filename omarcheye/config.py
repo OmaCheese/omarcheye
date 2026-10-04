@@ -38,6 +38,9 @@ class Config:
     # Also read the gaze from full-resolution eye crops with a small network
     # (eyenet.py, about 5 ms a frame); calibration uses it when it predicts better.
     eyenet: bool = True
+    # Describe each eye's full-resolution patch for the per-person appearance
+    # model (appearance.py, under a millisecond a frame).
+    patches: bool = True
 
     # Monitor the camera sits on; "" = the monitor focused at calibration.
     monitor: str = ""

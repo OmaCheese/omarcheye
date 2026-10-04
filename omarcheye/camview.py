@@ -93,7 +93,7 @@ def show(cfg: Config) -> int:
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet)
+    tracker = FaceTracker(delegate=cfg.delegate, eyenet=cfg.eyenet, patches=cfg.patches)
     cam = Camera(info.device, cfg.width, cfg.height, cfg.fps)
     ov = OverlayProcess(mon.name, "follow")
     feed = CameraFeed(ov, "center")
