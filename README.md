@@ -1,6 +1,14 @@
 # omarch-eye
 
-Pronounced "omach-eye"; the command is `omarcheye`. Look at a window and it gets focus. omarch-eye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
+**Look at a window. It has focus.**
+
+Omarchy already took the mouse out of switching windows: `Super + arrow`, and you're there. But even that asks you something every time. Which way is it from here? Left, then up? One press or two? You knew where you wanted to go before your hand moved. Your eyes were already there.
+
+omarch-eye drops the question. A webcam above the screen sees where you look, and focus follows. No keys, no mouse, no counting tiles: the fastest way to switch windows is to not switch them at all. You were going to look at that window anyway; now that's all it takes.
+
+It stays out of your way. Typing pauses it, the mouse always wins, and when it picks the wrong window, a glance up at the camera and back moves focus on. It picks windows, not buttons, and it learns how you sit as you work.
+
+Pronounced "omach-eye"; the command is `omarcheye`. omarch-eye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
 
 Status: version 0.8, beta. It is developed on one desk: a 32-inch monitor, with a phone (a OnePlus 13 streamed through Flux) standing in for a webcam. It has been used live only with that phone; the models are also measured on laptop-webcam images (see [Models](#models)). The latest calibration (15 dots and `refine`) chose the appearance model, with a cross-validated error of 4.6% of the screen width (about 3.2 cm; the best landmark model on the same frames, 6.3%). When omarch-eye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarch-eye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: the eye-network model and the appearance model, which learns how your own eyes look (see [Models](#models)); calibration uses them when they predict better, so recalibrate once to try them.
 
