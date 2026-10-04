@@ -55,6 +55,21 @@ Errors are shares of the screen width. *This desk, same sitting*: the latest cal
 - **Switching later.** `omarcheye test` (or right-click the eye, then Test) shows 9 new dots and scores the model in use and the other four, all fitted on your calibration, sitting as you are now. When one beats the model in use by 10%, Enter switches to it.
 - **Leaving one out.** `eyenet = false` in [Settings](#settings) drops the eye-network model (and the appearance model does without the network's reading); `patches = false` drops the appearance model. Each saves its processor time (about 5 ms and under 1 ms a frame). Recalibrate afterwards.
 
+## Limitations
+
+omarch-eye isn't 100% accurate, and it doesn't need to be: it chooses between windows, and for that it is good enough to leave on all day. Where it falls short:
+
+- **Fewer, bigger windows work best.** A webcam reads gaze to about 3–5 cm, so each estimate is a blob about the calibration's error wide (here 4.6% of the screen width, about 180 px on a 4K screen). Two to four windows switch cleanly, in a median 0.2 s once your eyes land. With seven windows the median is 0.27 s, but the slowest tenth of looks take up to 0.75 s, and a window not much bigger than the blob rarely gets a confident look at all.
+- **Up and down is weaker than left and right.** With the camera above the screen, windows stacked top and bottom switch more slowly than side by side.
+- **Sometimes it picks the neighbour.** Replayed on real calibration frames, 2.8% of looks moved focus to the wrong window. A glance up at the camera and back moves focus on to the next likeliest one, and omarch-eye learns from it. Staring at the border between two windows flips focus about four times a minute.
+- **Sitting differently costs accuracy until it adapts.** On laptop-webcam images from other days, even the best model's error roughly doubles (6.4% to 14.2%, see [Eyes at full resolution](#eyes-at-full-resolution)). omarch-eye learns the shift from your corrections and typing within a few minutes, `omarcheye recentre` measures it in 2 s, and a new chair or camera position wants a new calibration.
+- **Windows, not buttons.** It isn't precise enough to point at anything inside a window.
+- **One monitor:** the one the camera sits on.
+- **It costs something to run.** About a third of a processor core for the face model (9 ms a frame on a Ryzen 7 5800H) and about 5 ms a frame for the eye network. From eyes to focus takes about 0.8 s with a phone over Wi-Fi as the camera; a USB webcam cuts the camera's share of that. Turn it off when you don't need it.
+- **Tested on one desk.** It has been used live with one phone camera and one 32-inch monitor; laptop webcams only through the benchmark. Lighting, glasses and other cameras are untested live.
+
+Within those limits it is quite good enough: on a handful of tiled windows, you look and focus is there.
+
 ## Install
 
 Omarchy 4 (Hyprland on Arch) and a camera above the monitor.
