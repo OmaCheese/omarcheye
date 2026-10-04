@@ -31,7 +31,7 @@ STILL_FRAC = 0.02  # ... within this share of the monitor width
 MIN_CELLS = 8
 
 INTRO = (
-    "omarcheye refine\n\n"
+    "omarch-eye refine\n\n"
     "Move the mouse slowly over the whole screen and keep your eyes on the pointer.\n"
     "Rest it here and there: frames count while the pointer is nearly still.\n"
     "Cells turn green as they fill.\n\n"

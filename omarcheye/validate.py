@@ -26,7 +26,7 @@ NAMES = {"basic": "basic features", "rich": "rich features", "eyenet": "eye netw
          "geometric": "geometric model"}
 
 INTRO = (
-    "omarcheye test\n\n"
+    "omarch-eye test\n\n"
     "Look at each dot until it shrinks away, sitting as you normally do.\n"
     "Nothing is changed unless you choose so at the end.\n\n"
     "Space: start      Esc: cancel"
@@ -89,7 +89,7 @@ def run(cfg: Config) -> int:
         print("omarcheye: " + "\nomarcheye: ".join(lines))
         prompt = (f"\n\nEnter: switch to the {NAMES.get(best[1].kind, best[1].kind)}      any other key: keep"
                   if best else "\n\nPress any key")
-        ov.send(cmd="text", text="omarcheye test\n\n" + "\n".join(lines) + prompt)
+        ov.send(cmd="text", text="omarch-eye test\n\n" + "\n".join(lines) + prompt)
         end = time.monotonic() + 30
         while time.monotonic() < end:
             key = check_keys(ov)

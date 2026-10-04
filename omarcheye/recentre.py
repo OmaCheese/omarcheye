@@ -54,7 +54,7 @@ def run(cfg: Config) -> int:
         ready = ov.wait_for("ready", 8)
         width, height = ready["width"], ready["height"]
         aspect = height / width
-        ov.send(cmd="text", text="omarcheye recentre\n\nLook at the dot")
+        ov.send(cmd="text", text="omarch-eye recentre\n\nLook at the dot")
         data, _ = _collect(ov, cam, tracker, [(0.5, 0.5)], width, height)
         check_keys(ov)
         data = subset(data, data["opens"] >= model.blink)
