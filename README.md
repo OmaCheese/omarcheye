@@ -1,8 +1,8 @@
 # omarcheye
 
-Pronounced "omach-eye". Look at a window and it gets focus. omarcheye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. Toggle it on and off with `omarcheye toggle` (or a key bound to it).
+Pronounced "omach-eye". Look at a window and it gets focus. omarcheye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
 
-Status: version 0.8. It runs on lunar-gouda with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). When omarcheye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarcheye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: a small pretrained eye network and a per-person model of how your eyes look (see [Eyes at full resolution](#eyes-at-full-resolution)); calibration uses them when they predict better, so recalibrate once to try them.
+Status: version 0.8, beta. It is developed on one desk, a 32-inch monitor with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). When omarcheye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarcheye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: a small pretrained eye network and a per-person model of how your eyes look (see [Eyes at full resolution](#eyes-at-full-resolution)); calibration uses them when they predict better, so recalibrate once to try them.
 
 ## How it works
 
@@ -29,6 +29,49 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
 
+## Install
+
+Omarchy 4 (Hyprland on Arch) and a camera above the monitor.
+
+```sh
+omarchy plugin add https://github.com/OmaCheese/omarcheye.git --enable
+```
+
+This clones the plugin into `~/.config/omarchy/plugins/omacheese.omarcheye` and puts an eye in the bar. Click the eye to set omarcheye up: it runs `install.sh` in a terminal. Or run it yourself:
+
+```sh
+~/.config/omarchy/plugins/omacheese.omarcheye/install.sh
+```
+
+`install.sh`:
+
+- checks for the packages omarcheye needs (`gtk4-layer-shell`, `python-gobject`, `python-cairo`, `wayland-protocols`, `v4l-utils`, `uv`, and a C compiler from `base-devel`) and offers to install the missing ones with `omarchy pkg add`, which asks for your password;
+- creates the Python environment with `uv sync` from the pinned `uv.lock` (MediaPipe, OpenCV, OpenVINO, NumPy and their dependencies from PyPI, about 700 MB) in `~/.local/share/omarcheye/venv`;
+- downloads the face landmark model and the eye network (see [Licences](#licences)) to `~/.local/share/omarcheye/models/`, each pinned to one version and checked against its SHA-256;
+- builds the input-activity helper into `~/.local/share/omarcheye/build/`;
+- links `omarcheye` into `~/.local/bin` and installs the `omarcheye.service` systemd user unit. The unit is not started at login.
+
+It writes nothing inside the plugin's folder, because Omarchy reloads its plugins whenever a file in one changes. After `omarchy plugin update omacheese.omarcheye`, run `install.sh` again (or right-click the eye, then "Set up or update").
+
+Once installed, omarcheye's own code makes no network requests: camera frames stay in memory and are never saved, and OpenVINO's import-time analytics event is blocked.
+
+To work on omarcheye instead, clone the repository anywhere and run `./install.sh` in it; `uv run pytest` runs the tests.
+
+## Remove
+
+```sh
+~/.config/omarchy/plugins/omacheese.omarcheye/uninstall.sh
+omarchy plugin remove omacheese.omarcheye
+```
+
+`uninstall.sh` stops and removes the service, the `omarcheye` link, the Python environment, the models and the helper. It keeps your calibration (`~/.local/state/omarcheye`) and settings (`~/.config/omarcheye`). To delete those too:
+
+```sh
+rm -rf ~/.local/state/omarcheye ~/.config/omarcheye
+```
+
+Then delete the key binding, if you added one.
+
 ## Setup
 
 1. Put a camera on top of the monitor, centred and facing you. Either:
@@ -36,19 +79,21 @@ A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty
    - a phone running Flux (`omarchy-flux`), started as a webcam from the phone. It appears as the virtual camera "Flux Camera".
 
    With `camera = "auto"`, omarcheye takes a camera that is sending video, and prefers anything to the laptop's built-in one. `omarcheye cameras` shows what it sees.
-2. Install:
-
-   ```bash
-   sudo pacman -S --needed gtk4-layer-shell python-gobject python-cairo wayland-protocols v4l-utils
-   ./install.sh
-   ```
-
-   `install.sh` creates the Python environment (`uv sync`), downloads the face landmark model to `~/.local/share/omarcheye/models/`, builds the input-activity helper (`make`), links `omarcheye` into `~/.local/bin` and installs the `omarcheye.service` systemd user unit. The unit is not started at login.
+2. Install omarcheye (see [Install](#install)).
 3. Aim the camera: `omarcheye camera` shows its view. Your face should sit in the middle with a green outline. Then calibrate: `omarcheye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
 4. Optional, and worth it: `omarcheye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
 5. Check: `omarcheye preview` draws a ring where omarcheye thinks you are looking (green when it is on the focused window) without changing focus. `omarcheye preview --switch` changes focus too.
-6. Use: `omarcheye on`, `omarcheye off`, `omarcheye toggle`.
+6. Use: click the eye in the bar, or `omarcheye on`, `omarcheye off`, `omarcheye toggle`.
 7. After sitting differently (another chair, the camera nudged): `omarcheye recentre`. Or just carry on: retries, your corrections and typing teach omarcheye the new shift within a few minutes.
+
+## The bar
+
+The eye sits in the bar's right section (`omarchy plugin enable omacheese.omarcheye left|center|right` moves it). It is open and in the accent colour while omarcheye is on, crossed out while it is off, and red if the service stopped with an error. Its tooltip says which.
+
+- **Left click** turns omarcheye on or off. Until omarcheye is set up, it runs `install.sh` in a terminal instead; until it is calibrated, `omarcheye calibrate`.
+- **Right click** opens a menu in a terminal: Calibrate, Refine, Test, Recentre, Preview, Camera view, Status, and Set up or update.
+
+The widget checks the service every 3 s, so a toggle from the command line or a key shows up there too.
 
 ## Commands
 
@@ -244,6 +289,12 @@ None of them switched to a wrong window. The shown point moved 2.1% of the width
 ## Layout
 
 ```
+manifest.json         Omarchy plugin manifest
+BarWidget.qml         the eye in the bar
+install.sh            set up: packages, Python environment, models, helper, service
+uninstall.sh          undo install.sh
+bin/omarcheye         the command (runs the package with the environment install.sh made)
+bin/omarcheye-menu    the right-click menu
 omarcheye/            Python package
   cli.py          commands
   daemon.py       tracking loop
@@ -271,8 +322,21 @@ systemd/          user unit template
 tests/            pytest: uv run pytest
 ```
 
+## Licences
+
+Code: MIT, see [LICENSE](LICENSE).
+
+`install.sh` downloads these; none is included in the repository:
+
+| What | From | Licence |
+|---|---|---|
+| Face landmark model, `face_landmarker.task` (float16, version 1) | [Google MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) | Apache-2.0 |
+| Eye network, `gaze-estimation-adas-0002` (FP32) | [Intel Open Model Zoo](https://github.com/openvinotoolkit/open_model_zoo) 2023.0 | Apache-2.0 |
+| Python packages: MediaPipe, OpenCV (headless), OpenVINO, NumPy and their dependencies, versions pinned in `uv.lock` | PyPI | MediaPipe, OpenCV and OpenVINO Apache-2.0; NumPy BSD-3-Clause; the rest as each package states |
+
+The system packages come from Arch's repositories under their own licences.
+
 ## Ideas for later
 
 - Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omarcheye refine` does this on purpose). Typing already teaches omarcheye the shift window by window; a click would pin it to a point, but telling a click from a key press needs `/dev/input`.
-- A bar indicator and toggle as an Omarchy plugin, next to `rb.monitor` and `rb.overview` in `omarchy-rb-plugins`.
 - Gaze across several monitors (calibration currently covers the one the camera sits on).

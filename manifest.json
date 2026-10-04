@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "omacheese.omarcheye",
+  "name": "omarcheye",
+  "version": "0.8.0",
+  "author": "OmaCheese",
+  "license": "MIT",
+  "description": "Look at a window and it gets focus. omarcheye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. The eye in the bar turns it on and off; right-click it for calibration, the preview and the camera view. Runs entirely on this computer, and no camera images are saved.",
+  "homepage": "https://github.com/OmaCheese/omarcheye",
+  "repository": "https://github.com/OmaCheese/omarcheye",
+  "keywords": [
+    "eye tracking",
+    "gaze",
+    "focus",
+    "hyprland",
+    "webcam"
+  ],
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "omarcheye",
+    "description": "Turn eye focus on and off; right-click for calibration, the preview and the camera view.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -45,7 +45,7 @@ def cmd_on(cfg, args) -> int:
         return 1
     r = systemctl("start", SERVICE)
     if r.returncode:
-        print(r.stderr.strip() or f"omarcheye: could not start {SERVICE}; run ./install.sh", file=sys.stderr)
+        print(r.stderr.strip() or f"omarcheye: could not start {SERVICE}; run {config.INSTALL}", file=sys.stderr)
         return 1
     from .tracker import pick_camera
 

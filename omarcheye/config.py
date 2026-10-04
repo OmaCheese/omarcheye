@@ -19,9 +19,12 @@ DRIFT_PATH = STATE_DIR / "drift.json"  # the shift learned from your corrections
 MODEL_PATH = DATA_DIR / "models/face_landmarker.task"
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
-    "face_landmarker/float16/latest/face_landmarker.task"
+    "face_landmarker/float16/1/face_landmarker.task"
 )
-IDLE_HELPER = ROOT / "build/omarcheye-idle"
+# Built by install.sh outside the checkout: Omarchy reloads its plugins on any
+# change inside a plugin's folder.
+IDLE_HELPER = DATA_DIR / "build/omarcheye-idle"
+INSTALL = ROOT / "install.sh"
 SERVICE = "omarcheye.service"
 
 

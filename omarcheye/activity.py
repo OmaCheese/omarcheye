@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 
-from .config import IDLE_HELPER
+from .config import IDLE_HELPER, INSTALL
 
 
 class InputActivity:
@@ -22,7 +22,7 @@ class InputActivity:
         self.last_input = -math.inf
         self.proc = None
         if not IDLE_HELPER.exists():
-            print(f"omarcheye: {IDLE_HELPER} not built (make); typing won't pause switching", file=sys.stderr)
+            print(f"omarcheye: {IDLE_HELPER} not built (run {INSTALL}); typing won't pause switching", file=sys.stderr)
             return
         self.proc = subprocess.Popen([str(IDLE_HELPER), str(grace_ms)], stdout=subprocess.PIPE, text=True)
         threading.Thread(target=self._read, daemon=True).start()

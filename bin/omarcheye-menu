@@ -1,0 +1,19 @@
+#!/bin/bash
+# What a right click on omarcheye's bar widget opens, in a floating terminal:
+# pick a command and run it there.
+root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
+cli=$root/bin/omarcheye
+
+choice=$(gum choose --header "omarcheye" \
+  "Calibrate" "Refine" "Test" "Recentre" "Preview" "Camera view" "Status" "Set up or update") || exit 130
+
+case $choice in
+"Calibrate") exec "$cli" calibrate ;;
+"Refine") exec "$cli" refine ;;
+"Test") exec "$cli" test ;;
+"Recentre") exec "$cli" recentre ;;
+"Preview") echo "Ctrl+C closes the preview."; exec "$cli" preview ;;
+"Camera view") echo "Ctrl+C closes the camera view."; exec "$cli" camera ;;
+"Status") exec "$cli" status ;;
+"Set up or update") exec "$root/install.sh" ;;
+esac

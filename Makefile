@@ -1,21 +1,23 @@
-# Builds the input-activity helper. `make` -> build/omarcheye-idle
+# Builds the input-activity helper. `make` -> ~/.local/share/omarcheye/build/omarcheye-idle
+# (outside the checkout: Omarchy reloads its plugins on any change inside a plugin's folder).
 PROTOCOLS := $(shell pkg-config --variable=pkgdatadir wayland-protocols)
 IDLE_XML := $(PROTOCOLS)/staging/ext-idle-notify/ext-idle-notify-v1.xml
 WAYLAND := $(shell pkg-config --cflags --libs wayland-client)
+BUILD ?= $(or $(XDG_DATA_HOME),$(HOME)/.local/share)/omarcheye/build
 
-build/omarcheye-idle: src/omarcheye-idle.c build/ext-idle-notify-v1-protocol.c build/ext-idle-notify-v1-client-protocol.h
-	$(CC) -O2 -Wall -Wextra -Wno-unused-parameter -Ibuild -o $@ src/omarcheye-idle.c build/ext-idle-notify-v1-protocol.c $(WAYLAND)
+$(BUILD)/omarcheye-idle: src/omarcheye-idle.c $(BUILD)/ext-idle-notify-v1-protocol.c $(BUILD)/ext-idle-notify-v1-client-protocol.h
+	$(CC) -O2 -Wall -Wextra -Wno-unused-parameter -I$(BUILD) -o $@ src/omarcheye-idle.c $(BUILD)/ext-idle-notify-v1-protocol.c $(WAYLAND)
 
-build/ext-idle-notify-v1-client-protocol.h: $(IDLE_XML) | build
+$(BUILD)/ext-idle-notify-v1-client-protocol.h: $(IDLE_XML) | $(BUILD)
 	wayland-scanner client-header $< $@
 
-build/ext-idle-notify-v1-protocol.c: $(IDLE_XML) | build
+$(BUILD)/ext-idle-notify-v1-protocol.c: $(IDLE_XML) | $(BUILD)
 	wayland-scanner private-code $< $@
 
-build:
-	mkdir -p build
+$(BUILD):
+	mkdir -p $(BUILD)
 
 clean:
-	rm -rf build
+	rm -rf $(BUILD)
 
 .PHONY: clean

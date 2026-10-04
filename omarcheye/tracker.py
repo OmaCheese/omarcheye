@@ -26,7 +26,7 @@ import numpy as np  # noqa: E402
 # conversions cost well over a core of spinning at 30 fps for ~2 ms of work.
 cv2.setNumThreads(1)
 
-from .config import MODEL_PATH
+from .config import INSTALL, MODEL_PATH
 
 # Landmark indices. "A" is the eye on the image's left (the subject's right).
 A_LEFT, A_RIGHT, A_UPPER, A_LOWER, A_IRIS = 33, 133, 159, 145, 468
@@ -149,7 +149,7 @@ class FaceTracker:
     def __init__(self, model_path: Path = MODEL_PATH, delegate: str = "cpu", eyenet: bool = True,
                  patches: bool = True):
         if not model_path.exists():
-            raise FileNotFoundError(f"{model_path} is missing; run ./install.sh")
+            raise FileNotFoundError(f"{model_path} is missing; run {INSTALL}")
         if delegate == "gpu":
             # MediaPipe opens EGL on the first render node, which is the NVIDIA
             # card here; Mesa can't drive that and silently falls back to

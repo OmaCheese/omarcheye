@@ -1,8 +1,12 @@
 #!/bin/bash
-# omarcheye launcher: runs the package from this checkout with its own environment.
+# omarcheye launcher: runs the package from this checkout with the environment
+# install.sh made. The environment and Python's bytecode stay outside the
+# checkout, because Omarchy reloads its plugins on any change inside a plugin's folder.
 root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
-if [[ ! -x $root/.venv/bin/python ]]; then
-  echo "omarcheye: no Python environment in $root; run $root/install.sh" >&2
+venv=${XDG_DATA_HOME:-$HOME/.local/share}/omarcheye/venv
+if [[ ! -x $venv/bin/python ]]; then
+  echo "omarcheye: not set up yet; run $root/install.sh" >&2
   exit 1
 fi
-PYTHONPATH=$root exec "$root/.venv/bin/python" -m omarcheye "$@"
+export PYTHONPYCACHEPREFIX=${XDG_CACHE_HOME:-$HOME/.cache}/omarcheye/pycache
+PYTHONPATH=$root exec "$venv/bin/python" -m omarcheye "$@"

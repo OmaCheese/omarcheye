@@ -52,7 +52,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .config import DATA_DIR
+from .config import DATA_DIR, INSTALL
 
 EYENET_PATH = DATA_DIR / "models/gaze-estimation-adas-0002.xml"
 EYENET_URL = ("https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/"
@@ -141,7 +141,7 @@ class EyeNet:
     def __init__(self, model_path: Path = EYENET_PATH, threads: int = 1, focal: float | None = None,
                  flip: bool = True, min_width: float = 12.0, min_open: float = 0.12):
         if not Path(model_path).exists():
-            raise FileNotFoundError(f"{model_path} is missing; download {EYENET_URL}.xml and .bin next to it")
+            raise FileNotFoundError(f"{model_path} is missing; run {INSTALL}, or download {EYENET_URL}.xml and .bin next to it")
         core = _import_openvino().Core()
         net = core.compile_model(core.read_model(str(model_path)), "CPU",
                                  {"INFERENCE_NUM_THREADS": int(threads), "PERFORMANCE_HINT": "LATENCY"})
