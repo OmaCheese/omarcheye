@@ -2,6 +2,10 @@
 
 **Look at a window. It has focus.**
 
+[![omarch-eye moving focus between three windows as the eyes go from one to the next](https://github.com/OmaCheese/omarcheye/releases/download/v0.8.0/omarch-eye-demo.webp)](https://github.com/OmaCheese/omarcheye/releases/download/v0.8.0/omarch-eye-demo.mp4)
+
+*Live, with `omarcheye preview --switch --no-camera`: the ring is where omarch-eye thinks you're looking, and the bright window has focus. Unfocused windows are dimmed for the video with Hyprland's `dim_inactive`. Camera: a phone through Flux.*
+
 Omarchy already took the mouse out of switching windows: `Super + arrow`, and you're there. But even that asks you something every time. Which way is it from here? Left, then up? One press or two? You knew where you wanted to go before your hand moved. Your eyes were already there.
 
 omarch-eye drops the question. A webcam above the screen sees where you look, and focus follows. No keys, no mouse, no counting tiles: the fastest way to switch windows is to not switch them at all. You were going to look at that window anyway; now that's all it takes.
