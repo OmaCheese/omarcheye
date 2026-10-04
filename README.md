@@ -132,7 +132,7 @@ The widget checks the service every 3 s, so a toggle from the command line or a 
 | `omarcheye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each of the five [models](#models) fitted on your samples does; Enter switches to one that is 10% better |
 | `omarcheye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
 | `omarcheye recentre` | One dot in the middle of the screen: how far the estimates have shifted since calibration; omarch-eye shifts them back |
-| `omarcheye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
+| `omarcheye preview [--switch] [--no-camera]` | Show the gaze point; `--switch` also changes focus, `--no-camera` leaves out the camera view in the corner |
 | `omarcheye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
 | `omarcheye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
 | `omarcheye cameras` | List cameras and mark the one in use |

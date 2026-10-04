@@ -106,7 +106,7 @@ def cmd_preview(cfg, args) -> int:
     from .daemon import run
 
     with camera_free():
-        return run(cfg, preview=True, dry_run=not args.switch, verbose=True)
+        return run(cfg, preview=True, dry_run=not args.switch, verbose=True, camera_view=not args.no_camera)
 
 
 def cmd_calibrate(cfg, args) -> int:
@@ -237,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("recentre", help="look at one dot after sitting differently: omarcheye shifts its estimates to match")
     p = sub.add_parser("preview", help="show where omarcheye thinks you look")
     p.add_argument("--switch", action="store_true", help="also switch focus")
+    p.add_argument("--no-camera", action="store_true", help="leave out the camera view in the corner")
     p = sub.add_parser("run", help="tracking loop in the foreground (what the service runs)")
     p.add_argument("--preview", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="never change focus")

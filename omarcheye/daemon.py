@@ -104,7 +104,8 @@ def open_camera(cfg: Config, model: GazeModel, stop: threading.Event) -> Camera 
     return None
 
 
-def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool = False) -> int:
+def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool = False,
+        camera_view: bool = True) -> int:
     if not CALIBRATION_PATH.exists():
         log("not calibrated yet; run `omarcheye calibrate`")
         return 1
@@ -136,7 +137,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
     typed_in: str | None = None
     typed_last = saved = -math.inf
     overlay = OverlayProcess(model.monitor, "follow") if preview else None
-    feed = CameraFeed(overlay, "corner") if overlay else None
+    feed = CameraFeed(overlay, "corner") if overlay and camera_view else None
     lost = cfg.lost_ms / 1000
     away = cfg.away_ms / 1000
 
