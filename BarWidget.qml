@@ -4,8 +4,8 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// omarcheye in the bar: an eye, in the accent colour while omarcheye moves focus
-// to the window you look at. A left click turns it on or off; until omarcheye is
+// omarch-eye in the bar: an eye, in the accent colour while omarch-eye moves focus
+// to the window you look at. A left click turns it on or off; until omarch-eye is
 // set up and calibrated, it opens a terminal that does that first. A right click
 // opens a terminal menu: calibrate, refine, test, recentre, preview, camera view.
 BarWidget {
@@ -25,19 +25,19 @@ BarWidget {
   readonly property string tooltip: {
     switch (status) {
     case "":
-      return "omarcheye"
+      return "omarch-eye"
     case "setup":
-      return "omarcheye is not set up yet.\nClick to set it up."
+      return "omarch-eye is not set up yet.\nClick to set it up."
     case "calibrate":
-      return "omarcheye is not calibrated yet.\nClick to calibrate: follow the dots with your eyes for about 30 s."
+      return "omarch-eye is not calibrated yet.\nClick to calibrate: follow the dots with your eyes for about 30 s."
     case "active":
-      return "omarcheye is on: the window you look at gets focus.\nClick to turn it off. Right-click for calibration, the preview and more."
+      return "omarch-eye is on: the window you look at gets focus.\nClick to turn it off. Right-click for calibration, the preview and more."
     case "activating":
-      return "omarcheye is starting…"
+      return "omarch-eye is starting…"
     case "failed":
-      return "omarcheye stopped with an error (journalctl --user -u omarcheye).\nClick to start it again."
+      return "omarch-eye stopped with an error (journalctl --user -u omarcheye).\nClick to start it again."
     default:
-      return "omarcheye is off.\nClick to turn it on. Right-click for calibration, the preview and more."
+      return "omarch-eye is off.\nClick to turn it on. Right-click for calibration, the preview and more."
     }
   }
 

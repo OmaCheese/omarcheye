@@ -53,7 +53,7 @@ def run(cfg: Config) -> int:
     ov = OverlayProcess(mon.name, "calibrate")
     try:
         ov.wait_for("ready", 8)
-        ov.send(cmd="text", text=f"omarcheye latency\n\nKeep your face in view of {info.name}.\n"
+        ov.send(cmd="text", text=f"omarch-eye latency\n\nKeep your face in view of {info.name}.\n"
                                  f"The screen flashes white {FLASHES} times.\n\nEsc: cancel")
         times, light, painted = [], [], []
         # (seconds from the start, level): dark, then flashes at irregular times
@@ -103,7 +103,7 @@ def run(cfg: Config) -> int:
                     f"{np.min(ms):.0f}–{np.max(ms):.0f} ms), {fps:.1f} frames per second from {info.name}")
         print(f"omarcheye: {text}")
         ov.send(cmd="fill", level=0)
-        ov.send(cmd="text", text=f"omarcheye latency\n\n{text}\n\nPress any key")
+        ov.send(cmd="text", text=f"omarch-eye latency\n\n{text}\n\nPress any key")
         end = time.monotonic() + 8
         while time.monotonic() < end and check_keys(ov) is None:
             time.sleep(0.05)

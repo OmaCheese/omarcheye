@@ -22,7 +22,7 @@ def service_active() -> bool:
 
 def notify(cfg: config.Config, text: str) -> None:
     if cfg.notify and shutil.which("notify-send"):
-        subprocess.run(["notify-send", "-a", "omarcheye", "-i", "camera-web", "-t", "2000", "omarcheye", text])
+        subprocess.run(["notify-send", "-a", "omarcheye", "-i", "camera-web", "-t", "2000", "omarch-eye", text])
 
 
 @contextlib.contextmanager

@@ -333,7 +333,7 @@ def run(cfg: Config, preview: bool = False, dry_run: bool = False, verbose: bool
                 advice = framing_advice(seen.pos, seen.margin) if seen else ""
                 if not advice and len(recent_off) > 30 and sum(recent_off) > 0.8 * len(recent_off):
                     advice = OFF_SCREEN_HINT
-                overlay.send(cmd="text", text=f"omarcheye preview{' (dry run)' if dry_run else ''}"
+                overlay.send(cmd="text", text=f"omarch-eye preview{' (dry run)' if dry_run else ''}"
                              f"   face {'yes' if sample else 'no'}   {busy}" + (f"\n{advice}" if advice else ""))
 
             if verbose and now - stats_since >= STATS_EVERY:

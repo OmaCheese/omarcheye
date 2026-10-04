@@ -1,8 +1,8 @@
-# omarcheye
+# omarch-eye
 
-Pronounced "omach-eye". Look at a window and it gets focus. omarcheye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
+Pronounced "omach-eye"; the command is `omarcheye`. Look at a window and it gets focus. omarch-eye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
 
-Status: version 0.8, beta. It is developed on one desk, a 32-inch monitor with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). When omarcheye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarcheye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: a small pretrained eye network and a per-person model of how your eyes look (see [Eyes at full resolution](#eyes-at-full-resolution)); calibration uses them when they predict better, so recalibrate once to try them.
+Status: version 0.8, beta. It is developed on one desk, a 32-inch monitor with a OnePlus 13 streamed through Flux as the camera; the latest calibration (rich features, 15 dots) has a cross-validated error of 6.4% of the screen width (about 4.5 cm). When omarch-eye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarch-eye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: a small pretrained eye network and a per-person model of how your eyes look (see [Eyes at full resolution](#eyes-at-full-resolution)); calibration uses them when they predict better, so recalibrate once to try them.
 
 ## How it works
 
@@ -14,15 +14,15 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
 ```
 
 1. **Features.** Two landmark sets are recorded, plus two read from the full-resolution eye crops (see [Eyes at full resolution](#eyes-at-full-resolution)), and calibration keeps whichever model predicts best on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
-2. **Calibration** (`omarcheye calibrate`) shows 15 dots. While you look at each one, omarcheye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below). It uses the geometric model unless its cross-validated error is more than 30% worse than the best regression's; otherwise the regression with the lowest error. Cross-validation within one sitting flatters the regressions, because they lean on how your head happened to sit. Each regression scales head features by at least a minimum spread (2° for angles, 2 cm for distance), and clamps live features to the calibration's range widened by two spreads, so sitting differently later can't throw predictions off the screen.
+2. **Calibration** (`omarcheye calibrate`) shows 15 dots. While you look at each one, omarch-eye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below). It uses the geometric model unless its cross-validated error is more than 30% worse than the best regression's; otherwise the regression with the lowest error. Cross-validation within one sitting flatters the regressions, because they lean on how your head happened to sit. Each regression scales head features by at least a minimum spread (2° for angles, 2 cm for distance), and clamps live features to the calibration's range widened by two spreads, so sitting differently later can't throw predictions off the screen.
 3. **Refining** (`omarcheye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
-5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omarcheye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
-6. **Switching.** How long omarcheye waits depends on how sure it is. At 97%, held for 40 ms (the two frames after the first), focus moves at once. That happens within a few frames when you look clearly into a window: replayed on real calibration data, a median of 0.2 s for 2×2 windows and 0.27 s for the seven windows of workspace 1 (see [Where the time goes](#where-the-time-goes)). Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about four times a minute. Windows stacked top and bottom stay slower: up-down is the weaker direction for a camera above the screen, so the evidence rarely gets that sure. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omarcheye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
-7. **A glance retries.** If omarcheye focuses the wrong window, look up at the camera and straight back, within 2 s of the switch. Focus moves on to the runner-up: the likeliest window next to where you are looking, leaving out the ones already tried. Another glance tries the next one. To count, the look away lasts 0.1–0.7 s and goes at least 12% of the screen width from where you were looking. The first 0.3 s after a switch don't count, because the estimate is still settling from the eye movement. While a look up is under way, omarcheye doesn't switch (looking up at the camera can land the estimate in a top window); longer than 0.7 s, it was a move, and switching carries on as usual. Looks sideways or down (at the keyboard) don't count and never hold switching back. A quick look that loses the face counts too. Once you type or move the mouse, the window is accepted and glances do nothing. The log says `retry: A -> B`, and a window just rejected isn't focused again within 3 s.
-8. **Learning how you sit now.** Sitting differently moves every estimate by about the same amount (see [Picking the neighbouring window](#picking-the-neighbouring-window)). omarcheye learns that shift (`drift.py`) from three kinds of record:
+5. **Using the layout.** A predicted point is uncertain by about the calibration's error, so omarch-eye treats it as a blob, not a dot. For each window on screen it works out how much of the blob falls inside: that's the chance you are looking at that window. Floating windows on top claim their area first, and what falls in gaps or outside the windows counts as looking away. Looking into the middle of a big window gives it nearly all the chance; a point near a border splits it. A running belief combines the frames, assuming your gaze usually stays put and moves between windows about 1.5 times a second at most. Each frame is softened because consecutive frames share most of their error.
+6. **Switching.** How long omarch-eye waits depends on how sure it is. At 97%, held for 40 ms (the two frames after the first), focus moves at once. That happens within a few frames when you look clearly into a window: replayed on real calibration data, a median of 0.2 s for 2×2 windows and 0.27 s for the seven windows of workspace 1 (see [Where the time goes](#where-the-time-goes)). Otherwise a window needs 90% for 0.25 s. A flick of the eyes (two frames) doesn't switch, and staring at the border between two windows flips focus about four times a minute. Windows stacked top and bottom stay slower: up-down is the weaker direction for a camera above the screen, so the evidence rarely gets that sure. Switching pauses while you type (any input in the last 0.7 s, through the Wayland idle-notify protocol, so no access to `/dev/input` is needed) and for 2 s after the mouse moves, but the belief keeps tracking. The mouse always wins. In `omarcheye preview` the ring sits at the centre of the most likely window, outlined with how likely it is; the small dot is the steady gaze estimate itself. The colour says what the service would do: green, the focused window; amber, sure enough to switch (the label says when typing or the mouse holds it back); white, only the likeliest. With `--verbose` (the service's default) the log names each switch with its probability, and every 30 s says how long a ready switch was held back by typing or the mouse.
+7. **A glance retries.** If omarch-eye focuses the wrong window, look up at the camera and straight back, within 2 s of the switch. Focus moves on to the runner-up: the likeliest window next to where you are looking, leaving out the ones already tried. Another glance tries the next one. To count, the look away lasts 0.1–0.7 s and goes at least 12% of the screen width from where you were looking. The first 0.3 s after a switch don't count, because the estimate is still settling from the eye movement. While a look up is under way, omarch-eye doesn't switch (looking up at the camera can land the estimate in a top window); longer than 0.7 s, it was a move, and switching carries on as usual. Looks sideways or down (at the keyboard) don't count and never hold switching back. A quick look that loses the face counts too. Once you type or move the mouse, the window is accepted and glances do nothing. The log says `retry: A -> B`, and a window just rejected isn't focused again within 3 s.
+8. **Learning how you sit now.** Sitting differently moves every estimate by about the same amount (see [Picking the neighbouring window](#picking-the-neighbouring-window)). omarch-eye learns that shift (`drift.py`) from three kinds of record:
    - a retry: the window it ends on is where you were looking;
-   - focus you move yourself within 3 s of omarcheye moving it, the same;
+   - focus you move yourself within 3 s of omarch-eye moving it, the same;
    - lightly (0.3 of a record), a second of typing with the pointer still, at most every 4 s: you mostly look at the window you type into.
 
    The shift is the smallest one that puts each recorded estimate inside its window, a calibration error from the edges. Newer records count more (an hour-old one counts half), and a record that disagrees with the rest counts less, so the odd look elsewhere while typing doesn't drag the shift along. A correction that would need more than 30% of the screen width isn't learned. The shift is kept in `~/.local/state/omarcheye/drift.json` across restarts, shown by `omarcheye status`, and dropped by a new calibration. `omarcheye recentre` measures it directly: one dot in the middle of the screen for 2 s, and that replaces what was learned. With `learn = false`, a recentre still applies, but nothing is learned.
@@ -37,7 +37,7 @@ Omarchy 4 (Hyprland on Arch) and a camera above the monitor.
 omarchy plugin add https://github.com/OmaCheese/omarcheye.git --enable
 ```
 
-This clones the plugin into `~/.config/omarchy/plugins/omacheese.omarcheye` and puts an eye in the bar. Click the eye to set omarcheye up: it runs `install.sh` in a terminal. Or run it yourself:
+This clones the plugin into `~/.config/omarchy/plugins/omacheese.omarcheye` and puts an eye in the bar. Click the eye to set omarch-eye up: it runs `install.sh` in a terminal. Or run it yourself:
 
 ```sh
 ~/.config/omarchy/plugins/omacheese.omarcheye/install.sh
@@ -45,7 +45,7 @@ This clones the plugin into `~/.config/omarchy/plugins/omacheese.omarcheye` and 
 
 `install.sh`:
 
-- checks for the packages omarcheye needs (`gtk4-layer-shell`, `python-gobject`, `python-cairo`, `wayland-protocols`, `v4l-utils`, `uv`, and a C compiler from `base-devel`) and offers to install the missing ones with `omarchy pkg add`, which asks for your password;
+- checks for the packages omarch-eye needs (`gtk4-layer-shell`, `python-gobject`, `python-cairo`, `wayland-protocols`, `v4l-utils`, `uv`, and a C compiler from `base-devel`) and offers to install the missing ones with `omarchy pkg add`, which asks for your password;
 - creates the Python environment with `uv sync` from the pinned `uv.lock` (MediaPipe, OpenCV, OpenVINO, NumPy and their dependencies from PyPI, about 700 MB) in `~/.local/share/omarcheye/venv`;
 - downloads the face landmark model and the eye network (see [Licences](#licences)) to `~/.local/share/omarcheye/models/`, each pinned to one version and checked against its SHA-256;
 - builds the input-activity helper into `~/.local/share/omarcheye/build/`;
@@ -53,9 +53,9 @@ This clones the plugin into `~/.config/omarchy/plugins/omacheese.omarcheye` and 
 
 It writes nothing inside the plugin's folder, because Omarchy reloads its plugins whenever a file in one changes. After `omarchy plugin update omacheese.omarcheye`, run `install.sh` again (or right-click the eye, then "Set up or update").
 
-Once installed, omarcheye's own code makes no network requests: camera frames stay in memory and are never saved, and OpenVINO's import-time analytics event is blocked.
+Once installed, omarch-eye's own code makes no network requests: camera frames stay in memory and are never saved, and OpenVINO's import-time analytics event is blocked.
 
-To work on omarcheye instead, clone the repository anywhere and run `./install.sh` in it; `uv run pytest` runs the tests.
+To work on omarch-eye instead, clone the repository anywhere and run `./install.sh` in it; `uv run pytest` runs the tests.
 
 ## Remove
 
@@ -78,19 +78,19 @@ Then delete the key binding, if you added one.
    - a plug-in webcam: any 1080p one works, and infrared isn't needed; or
    - a phone running Flux (`omarchy-flux`), started as a webcam from the phone. It appears as the virtual camera "Flux Camera".
 
-   With `camera = "auto"`, omarcheye takes a camera that is sending video, and prefers anything to the laptop's built-in one. `omarcheye cameras` shows what it sees.
-2. Install omarcheye (see [Install](#install)).
+   With `camera = "auto"`, omarch-eye takes a camera that is sending video, and prefers anything to the laptop's built-in one. `omarcheye cameras` shows what it sees.
+2. Install omarch-eye (see [Install](#install)).
 3. Aim the camera: `omarcheye camera` shows its view. Your face should sit in the middle with a green outline. Then calibrate: `omarcheye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
 4. Optional, and worth it: `omarcheye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
-5. Check: `omarcheye preview` draws a ring where omarcheye thinks you are looking (green when it is on the focused window) without changing focus. `omarcheye preview --switch` changes focus too.
+5. Check: `omarcheye preview` draws a ring where omarch-eye thinks you are looking (green when it is on the focused window) without changing focus. `omarcheye preview --switch` changes focus too.
 6. Use: click the eye in the bar, or `omarcheye on`, `omarcheye off`, `omarcheye toggle`.
-7. After sitting differently (another chair, the camera nudged): `omarcheye recentre`. Or just carry on: retries, your corrections and typing teach omarcheye the new shift within a few minutes.
+7. After sitting differently (another chair, the camera nudged): `omarcheye recentre`. Or just carry on: retries, your corrections and typing teach omarch-eye the new shift within a few minutes.
 
 ## The bar
 
-The eye sits in the bar's right section (`omarchy plugin enable omacheese.omarcheye left|center|right` moves it). It is open and in the accent colour while omarcheye is on, crossed out while it is off, and red if the service stopped with an error. Its tooltip says which.
+The eye sits in the bar's right section (`omarchy plugin enable omacheese.omarcheye left|center|right` moves it). It is open and in the accent colour while omarch-eye is on, crossed out while it is off, and red if the service stopped with an error. Its tooltip says which.
 
-- **Left click** turns omarcheye on or off. Until omarcheye is set up, it runs `install.sh` in a terminal instead; until it is calibrated, `omarcheye calibrate`.
+- **Left click** turns omarch-eye on or off. Until omarch-eye is set up, it runs `install.sh` in a terminal instead; until it is calibrated, `omarcheye calibrate`.
 - **Right click** opens a menu in a terminal: Calibrate, Refine, Test, Recentre, Preview, Camera view, Status, and Set up or update.
 
 The widget checks the service every 3 s, so a toggle from the command line or a key shows up there too.
@@ -104,7 +104,7 @@ The widget checks the service every 3 s, so a toggle from the command line or a 
 | `omarcheye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots); starts the samples afresh |
 | `omarcheye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each kind of model fitted on your samples does; Enter switches to a clearly better one |
 | `omarcheye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
-| `omarcheye recentre` | One dot in the middle of the screen: how far the estimates have shifted since calibration; omarcheye shifts them back |
+| `omarcheye recentre` | One dot in the middle of the screen: how far the estimates have shifted since calibration; omarch-eye shifts them back |
 | `omarcheye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
 | `omarcheye run [--preview] [--dry-run] [-v]` | The tracking loop in the foreground (what the service runs) |
 | `omarcheye camera` | Show what the camera sees, with the tracking drawn on; Ctrl+C closes it |
@@ -186,7 +186,7 @@ The gap between columns is what sitting differently costs, for every model. Trie
 
 ## Picking the neighbouring window
 
-With many windows open, omarcheye sometimes focused the window next to the one being looked at. On the `omarcheye test` recording from another sitting (9 dots, scored with the current calibration, the geometric model), nearly all of the error is one shift, the same for every dot: the estimates sat 16.4% of the screen width left of and 9.0% above where the eyes were. Error of each dot's average estimate, share of the screen width:
+With many windows open, omarch-eye sometimes focused the window next to the one being looked at. On the `omarcheye test` recording from another sitting (9 dots, scored with the current calibration, the geometric model), nearly all of the error is one shift, the same for every dot: the estimates sat 16.4% of the screen width left of and 9.0% above where the eyes were. Error of each dot's average estimate, share of the screen width:
 
 | | Other sitting | Calibration's own sitting |
 |---|---|---|
@@ -197,7 +197,7 @@ With many windows open, omarcheye sometimes focused the window next to the one b
 
 With four windows side by side, each is 25% of the width, so a shift of 16% puts most looks into a neighbour. Hence the glance retry, learning the shift, and `omarcheye recentre`.
 
-The frames of both sittings were replayed through the 7 windows on workspace 1 at the time (3072 × 1728 logical pixels; windows 750–1520 px wide, 430–890 px tall). Each look goes to a random spot in a random window for 4 s, carrying a random dot's own error. The simulated you glances up 0.4 s after omarcheye picks wrong, fixes focus by hand if it is still wrong 1.5 s in, and in 60% of looks then types for 2 s (in 15% of those while reading another window). Share of looks where the right window had focus at 1.5 s, minutes 3–5 of five, four runs each:
+The frames of both sittings were replayed through the 7 windows on workspace 1 at the time (3072 × 1728 logical pixels; windows 750–1520 px wide, 430–890 px tall). Each look goes to a random spot in a random window for 4 s, carrying a random dot's own error. The simulated you glances up 0.4 s after omarch-eye picks wrong, fixes focus by hand if it is still wrong 1.5 s in, and in 60% of looks then types for 2 s (in 15% of those while reading another window). Share of looks where the right window had focus at 1.5 s, minutes 3–5 of five, four runs each:
 
 | | Same sitting | Other sitting | Other sitting, after `omarcheye recentre` |
 |---|---|---|---|
@@ -243,7 +243,7 @@ Measured on a Ryzen 7 5800H with the OnePlus 13 streaming 1920×1080 at 30 frame
 | central processing unit (CPU) | 9.2 ms | about 36% of one core |
 | integrated graphics processing unit (GPU), Radeon Vega (`delegate = "gpu"`) | 13.1 ms | about 40% of one core |
 
-Before OpenCV was pinned to one thread (see Traps), the same runs used 170–190% of a core. After 3 s without a face, omarcheye checks only every sixth frame. The service runs at `Nice=10`.
+Before OpenCV was pinned to one thread (see Traps), the same runs used 170–190% of a core. After 3 s without a face, omarch-eye checks only every sixth frame. The service runs at `Nice=10`.
 
 At 1080p the face is already larger than the 256-pixel crop MediaPipe's landmark model works on, so 1080p mostly costs conversion time; whether it steadies the landmarks is what `omarcheye bench` (look at one spot) measures.
 
@@ -278,8 +278,8 @@ None of them switched to a wrong window. The shown point moved 2.1% of the width
 
 ## Traps found while building this
 
-- **MediaPipe was killed with SIGKILL at start-up.** `mediapipe` imports `sounddevice` for its audio tasks. Initialising PortAudio goes through the Advanced Linux Sound Architecture (ALSA) into PipeWire, whose realtime module leaves the process with a realtime CPU-time limit of 0, and the kernel kills it once inference starts. omarcheye has no audio, so `tracker.py` installs an empty `sounddevice` module before importing MediaPipe.
-- **The GPU delegate silently ran in software.** MediaPipe opens the first render node, which on this laptop is the NVIDIA card. Mesa can't drive that, so it fell back to `llvmpipe`. With `delegate = "gpu"`, omarcheye sets `DRI_PRIME` to the first non-NVIDIA Peripheral Component Interconnect (PCI) device (here `pci-0000_07_00_0`, the Radeon).
+- **MediaPipe was killed with SIGKILL at start-up.** `mediapipe` imports `sounddevice` for its audio tasks. Initialising PortAudio goes through the Advanced Linux Sound Architecture (ALSA) into PipeWire, whose realtime module leaves the process with a realtime CPU-time limit of 0, and the kernel kills it once inference starts. omarch-eye has no audio, so `tracker.py` installs an empty `sounddevice` module before importing MediaPipe.
+- **The GPU delegate silently ran in software.** MediaPipe opens the first render node, which on this laptop is the NVIDIA card. Mesa can't drive that, so it fell back to `llvmpipe`. With `delegate = "gpu"`, omarch-eye sets `DRI_PRIME` to the first non-NVIDIA Peripheral Component Interconnect (PCI) device (here `pci-0000_07_00_0`, the Radeon).
 - **A virtual camera only offers video while something feeds it.** The Flux camera is a v4l2loopback device. With no stream it accepts video in but offers none out, and OpenCV then can't open it. `tracker.py` asks each device what it can do (`VIDIOC_QUERYCAP`) and skips idle ones. When a stream stops, the next read blocks for OpenCV's default 10 s; `OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT=2` shortens that, because OpenCV doesn't support `CAP_PROP_READ_TIMEOUT_MSEC` for V4L2.
 - **With the GPU delegate, the preview turned the screen black.** `DRI_PRIME` leaked from the tracker into the overlay process, so GTK drew the overlay on the Radeon while the HDMI monitor is driven by the NVIDIA card. The transparent surface came out solid black. `overlay_client.py` removes `DRI_PRIME` from the overlay's environment.
 - **OpenCV's thread pool burned more than a core.** Its worker threads busy-wait between frames, so ~2 ms of colour conversion per frame cost 140–170% of a core at 30 fps. `tracker.py` calls `cv2.setNumThreads(1)`.
@@ -338,5 +338,5 @@ The system packages come from Arch's repositories under their own licences.
 
 ## Ideas for later
 
-- Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omarcheye refine` does this on purpose). Typing already teaches omarcheye the shift window by window; a click would pin it to a point, but telling a click from a key press needs `/dev/input`.
+- Learn from clicks while the service runs: when you click, you are almost always looking at the pointer, so each click is a free calibration sample (`omarcheye refine` does this on purpose). Typing already teaches omarch-eye the shift window by window; a click would pin it to a point, but telling a click from a key press needs `/dev/input`.
 - Gaze across several monitors (calibration currently covers the one the camera sits on).

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Set omarcheye up on this machine: Python environment, face and eye models,
+# Set omarch-eye up on this machine: Python environment, face and eye models,
 # input helper, the `omarcheye` command in ~/.local/bin and the systemd user
 # service. Safe to re-run after an update (`omarchy plugin update` or `git pull`).
 #
@@ -47,7 +47,7 @@ for tool in make cc pkg-config; do
   fi
 done
 if ((${#missing[@]})); then
-  echo "omarcheye needs these packages: ${missing[*]}"
+  echo "omarch-eye needs these packages: ${missing[*]}"
   answer=n
   if [[ -t 0 ]] && command -v omarchy &>/dev/null; then
     read -rp "Install them now with omarchy pkg add (asks for your password)? [y/N] " answer

@@ -1,7 +1,7 @@
 # Template: install.sh puts in the checkout path and copies it to ~/.config/systemd/user.
 # Not enabled at login; `omarcheye on|off|toggle` starts and stops it.
 [Unit]
-Description=omarcheye: focus the window you look at
+Description=omarch-eye: focus the window you look at
 Documentation=file://@ROOT@/README.md
 PartOf=graphical-session.target
 After=graphical-session.target

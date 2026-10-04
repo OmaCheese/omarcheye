@@ -20,7 +20,7 @@ MIN_DOTS = 8
 POOR = 0.15  # cross-validated error above this share of the screen width: warn
 
 INTRO = (
-    "omarcheye calibration\n\n"
+    "omarch-eye calibration\n\n"
     "Look at each dot until it shrinks away.\n"
     "Move your head as you normally would.\n\n"
     "Space: start      Esc: cancel"

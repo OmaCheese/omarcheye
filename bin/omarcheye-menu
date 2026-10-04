@@ -1,10 +1,10 @@
 #!/bin/bash
-# What a right click on omarcheye's bar widget opens, in a floating terminal:
+# What a right click on omarch-eye's bar widget opens, in a floating terminal:
 # pick a command and run it there.
 root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 cli=$root/bin/omarcheye
 
-choice=$(gum choose --header "omarcheye" \
+choice=$(gum choose --header "omarch-eye" \
   "Calibrate" "Refine" "Test" "Recentre" "Preview" "Camera view" "Status" "Set up or update") || exit 130
 
 case $choice in

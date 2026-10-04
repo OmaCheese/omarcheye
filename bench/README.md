@@ -1,7 +1,7 @@
-# omarcheye benchmark: MPIIFaceGaze
+# omarch-eye benchmark: MPIIFaceGaze
 
 One data cache, one evaluation protocol and baseline numbers, so that every
-gaze feature set for omarcheye is scored the same way. The dataset is
+gaze feature set for omarch-eye is scored the same way. The dataset is
 MPIIFaceGaze (15 people, 37,667 laptop-webcam images at 1280×720, each taken
 while the person looked at a dot on the laptop screen, over days to months).
 
@@ -38,7 +38,7 @@ creates `landmarks/DONE` once all 15 are there.
   pose, `px_to_mm`, `screen_to_camera`). It reads the MATLAB files itself (no
   scipy). Note the dataset's monitor-pose rotation is stored as `rvects`.
 - `landmarks.py`: writes `~/.cache/omarcheye/bench/landmarks/pXX.npz`. MediaPipe
-  Face Landmarker in IMAGE mode with omarcheye's own model file
+  Face Landmarker in IMAGE mode with omarch-eye's own model file
   (`~/.local/share/omarcheye/models/face_landmarker.task`) and options (one
   face, transformation matrix and blendshapes on, CPU), imported through
   `omarcheye.tracker._import_mediapipe` (a plain `import mediapipe` gets the
@@ -204,7 +204,7 @@ In degrees, rich (omarcheye.model) goes from 5.69° to 5.48° (R=5) and 5.24°
   same 30 calibration images, the rich features' error grows from 36 mm
   (rest of the same day) to 50 mm (other days). 100 images from the one day
   recover part of it (42 mm).
-- The two regressions are close: omarcheye's floors and clamping help a
+- The two regressions are close: omarch-eye's floors and clamping help a
   little over a plain ridge across sittings (50.2 vs 52.2 mm for rich). A
   quadratic expansion of all 21 rich features overfits badly with 30 images
   (91 mm, no better than no features): keep `quadratic=True` for small feature
