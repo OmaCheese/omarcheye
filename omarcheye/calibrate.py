@@ -9,7 +9,7 @@ from . import samples
 from .samples import DESC, NET
 from .config import CALIBRATION_PATH, Config
 from .hypr import Hypr
-from .model import fit_samples
+from .model import NAMES, fit_samples
 from .overlay_client import OverlayProcess
 from .camview import CameraFeed
 from .tracker import FEATURES, RICH, Camera, FaceTracker, framing_advice, list_cameras, pick_camera
@@ -32,14 +32,12 @@ class Cancelled(Exception):
 
 
 def compare(errors: dict[str, float], kind: str) -> str:
-    """One line on which feature set won, e.g. "rich features 5.1%, basic 6.6%: using rich"."""
+    """One line on which model won, e.g. "rich model 5.1%, basic model 6.6%: using rich model"."""
     if len(errors) < 2:
         return ""
-    names = {"basic": "basic features", "rich": "rich features", "eyenet": "eye network", "appearance": "eye-patch model",
-             "geometric": "geometric model"}
     why = " (it holds up better when you sit differently)" if errors[kind] > min(errors.values()) else ""
-    return ", ".join(f"{names.get(k, k)} {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) \
-        + f": using {names.get(kind, kind)}{why}"
+    return ", ".join(f"{NAMES.get(k, k)} {100 * e:.1f}%" for k, e in sorted(errors.items(), key=lambda x: x[1])) \
+        + f": using {NAMES.get(kind, kind)}{why}"
 
 
 def grid(n: int) -> list[tuple[float, float]]:

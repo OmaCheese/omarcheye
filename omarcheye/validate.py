@@ -2,7 +2,7 @@
 
 Calibration scores itself on frames from the same sitting. This scores it
 later, in whatever posture you are in, which is what using it is like. It
-also fits every kind of model (basic and rich regressions, geometric) on the
+also fits each of the five models (see model.NAMES) on the
 stored calibration samples and scores each on the same 9 dots; if another
 kind does clearly better, Enter switches to it. The test frames are kept in
 ~/.local/state/omarcheye/tests/ (numbers only) for later analysis.
@@ -16,14 +16,12 @@ from . import samples
 from .calibrate import Cancelled, _collect, check_keys, wait_for_start
 from .config import CALIBRATION_PATH, STATE_DIR, Config
 from .hypr import Hypr
-from .model import data_error, fit_all, load_model, subset
+from .model import NAMES, data_error, fit_all, load_model, subset
 from .overlay_client import OverlayProcess
 from .tracker import Camera, FaceTracker, pick_camera
 
 DOTS = [(x, y) for y in (0.2, 0.5, 0.8) for x in (0.15, 0.5, 0.85)]  # between the calibration dots
 BETTER = 0.9  # another kind must beat the current one by 10% to be offered
-NAMES = {"basic": "basic features", "rich": "rich features", "eyenet": "eye network", "appearance": "eye-patch model",
-         "geometric": "geometric model"}
 
 INTRO = (
     "omarch-eye test\n\n"

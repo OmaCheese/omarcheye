@@ -93,7 +93,7 @@ class AppearanceModel:
         return float(x), float(y)
 
     def describe(self) -> str:
-        return (f"eye-patch model (descriptor weight {self.wd:g}, eye network weight {self.wh:g}, "
+        return (f"appearance model (descriptor weight {self.wd:g}, eye network weight {self.wh:g}, "
                 f"ridge {self.lam:.3g})")
 
     def save(self, path: Path) -> None:

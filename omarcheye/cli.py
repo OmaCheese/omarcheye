@@ -73,7 +73,10 @@ def cmd_status(cfg, args) -> int:
     print(f"service:     {'on' if service_active() else 'off'}")
     if CALIBRATION_PATH.exists():
         c = json.loads(CALIBRATION_PATH.read_text())
-        print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, {c.get('kind', 'basic')} model, "
+        from .model import NAMES
+
+        kind = c.get("kind", "basic")
+        print(f"calibration: {c['created']} on {c['monitor']} with {c['camera']!r}, {NAMES.get(kind, kind)}, "
               f"error {100 * c['error']:.1f}% of screen width")
         with contextlib.suppress(OSError, ValueError, KeyError):
             d = json.loads(DRIFT_PATH.read_text())

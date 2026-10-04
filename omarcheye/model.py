@@ -29,6 +29,9 @@ KINDS = {"basic": FEATURES, "rich": RICH, "eyenet": ("hitx", "hity", *RICH)}
 HEAD_FLOOR = np.array([0.035, 0.035, 0.02, 0.02, 2.0])
 CLAMP = 2.0  # live features are clamped to the calibration's range, widened by this many spreads
 GEOMETRIC_MARGIN = 1.3  # prefer the geometric model unless its error is 30% worse than the best regression's
+# What each kind of model is called wherever omarch-eye names it (the README's Models section).
+NAMES = {"basic": "basic model", "rich": "rich model", "eyenet": "eye-network model",
+         "appearance": "appearance model", "geometric": "geometric model"}
 
 
 def floors(kind: str) -> np.ndarray:

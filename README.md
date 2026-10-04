@@ -2,7 +2,7 @@
 
 Pronounced "omach-eye"; the command is `omarcheye`. Look at a window and it gets focus. omarch-eye watches you through a webcam, works out which Hyprland window you are looking at, and focuses it. It replaces `Super + arrow` or reaching for the mouse. It comes as an Omarchy plugin: an eye in the bar turns it on and off (or `omarcheye toggle`, or a key bound to it).
 
-Status: version 0.8, beta. It is developed on one desk, a 32-inch monitor with a OnePlus 13 streamed through Flux as the camera; the latest calibration (15 dots and `refine`) chose the per-person appearance model, with a cross-validated error of 4.6% of the screen width (about 3.2 cm; the best landmark model on the same frames, 6.3%). When omarch-eye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarch-eye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: a small pretrained eye network and a per-person model of how your eyes look (see [Eyes at full resolution](#eyes-at-full-resolution)); calibration uses them when they predict better, so recalibrate once to try them.
+Status: version 0.8, beta. It is developed on one desk: a 32-inch monitor, with a phone (a OnePlus 13 streamed through Flux) standing in for a webcam. It has been used live only with that phone; the models are also measured on laptop-webcam images (see [Models](#models)). The latest calibration (15 dots and `refine`) chose the appearance model, with a cross-validated error of 4.6% of the screen width (about 3.2 cm; the best landmark model on the same frames, 6.3%). When omarch-eye picks the wrong window, a glance up and back sends focus on to the next likeliest one, and omarch-eye learns from that, from your own corrections and from where you type how you sit now (see [Picking the neighbouring window](#picking-the-neighbouring-window)). Settings are tuned by replaying the saved calibration and test frames, not yet by live use. Since 0.8 it also reads your eyes at the camera's full resolution: the eye-network model and the appearance model, which learns how your own eyes look (see [Models](#models)); calibration uses them when they predict better, so recalibrate once to try them.
 
 ## How it works
 
@@ -13,7 +13,7 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
                                            scores, head pose)  learned since)    in the layout)
 ```
 
-1. **Features.** Two landmark sets are recorded, plus two read from the full-resolution eye crops (see [Eyes at full resolution](#eyes-at-full-resolution)), and calibration keeps whichever model predicts best on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
+1. **Features.** Two landmark sets are recorded, plus two read from the full-resolution eye crops (see [Eyes at full resolution](#eyes-at-full-resolution)), and calibration keeps whichever of the five models (see [Models](#models)) predicts best on your data. **Basic:** where the iris sits between the eye corners (`u`, across) and across the corner line (`v`, down), in eye widths so head roll cancels out, with both eyes averaged. **Rich:** each eye's iris separately, each eye's upper and lower lid position (the upper lid follows the eye up and down, which helps the weak vertical direction), and MediaPipe's eight eye-direction scores (`eyeLookUp/Down/In/Out`, per eye). Both sets include head yaw, pitch and position relative to the camera, from MediaPipe's face transformation matrix.
 2. **Calibration** (`omarcheye calibrate`) shows 15 dots. While you look at each one, omarch-eye records about 30 frames. A ridge regression maps the features (plus `u²`, `v²`, `uv`) to monitor fractions. Leave-one-dot-out cross-validation picks the regularisation and reports the error you can expect. Calibration also fits the geometric model (below). It uses the geometric model unless its cross-validated error is more than 30% worse than the best regression's; otherwise the regression with the lowest error. Cross-validation within one sitting flatters the regressions, because they lean on how your head happened to sit. Each regression scales head features by at least a minimum spread (2° for angles, 2 cm for distance), and clamps live features to the calibration's range widened by two spreads, so sitting differently later can't throw predictions off the screen.
 3. **Refining** (`omarcheye refine`, optional) adds pointer samples: you move the mouse slowly and keep your eyes on the pointer. Frames count only while the pointer has rested within 2% of the screen width for 0.4 s, so camera lag and the eyes trailing a moving pointer don't matter. The samples join the dot samples and the model is refitted. The screen is split into 6×4 cells; each cell is held out in turn, so the error reported is for places the fit didn't learn from. The new fit is kept only if it beats the old calibration on the same samples. Running `refine` again adds more.
 4. **On screen, and steady.** A predicted point slightly outside the monitor is clamped to its edge. One more than 15% outside means you are looking away, and it doesn't count. A One Euro filter smooths the point the preview shows: a lot while it holds still, very little when it jumps. (A fixation filter replaced it for a while; replayed on the calibration frames it was no steadier and lagged up to 0.5 s behind the eyes, so it went.) Blink frames (eyelids below 60% of your usual opening) are skipped.
@@ -28,6 +28,24 @@ webcam frame ─► face + iris landmarks ─► gaze features ─► point on s
    The shift is the smallest one that puts each recorded estimate inside its window, a calibration error from the edges. Newer records count more (an hour-old one counts half), and a record that disagrees with the rest counts less, so the odd look elsewhere while typing doesn't drag the shift along. A correction that would need more than 30% of the screen width isn't learned. The shift is kept in `~/.local/state/omarcheye/drift.json` across restarts, shown by `omarcheye status`, and dropped by a new calibration. `omarcheye recentre` measures it directly: one dot in the middle of the screen for 2 s, and that replaces what was learned. With `learn = false`, a recentre still applies, but nothing is learned.
 
 A webcam gives gaze to roughly 2–4° (3–5 cm at arm's length). That's plenty for choosing between tiled windows on a 32-inch screen, and not enough to aim at buttons.
+
+## Models
+
+Every calibration fits five models on your own frames and uses the one that predicts best. Each turns what the camera sees into a point on the screen; they differ in what they read.
+
+| Model | What it reads | This desk, same sitting | Laptop webcams, other days |
+|---|---|---|---|
+| Basic model | where each iris sits between the eye corners, and head pose | 9.6% | 18.7% |
+| Rich model | each eye's iris and lids separately, MediaPipe's eye-direction scores, and head pose | 6.3% | 17.3% |
+| Geometric model | the iris and lid positions, turned into a ray from your eye to the screen in millimetres | 8.0% | 17.5% |
+| Eye-network model | the rich model's features plus a small pretrained network's reading of each eye at full resolution | 5.2% | 16.6% |
+| Appearance model | how your own eyes look at full resolution, with head pose, the landmark eye features and the eye network's reading | **4.6%** | **14.2%** |
+
+Errors are shares of the screen width. *This desk, same sitting*: the latest calibration here (15 dots and `refine`), cross-validated. *Laptop webcams, other days*: MPIIFaceGaze, calibrated on 30 images from one day and scored on the others (see [Eyes at full resolution](#eyes-at-full-resolution)). The first two are explained under [How it works](#how-it-works), step 1; the geometric model in [Geometric model](#geometric-model); the last two in [Eyes at full resolution](#eyes-at-full-resolution).
+
+- **Which one is used.** The lowest cross-validated error wins, except that the geometric model is kept unless its error is more than 30% worse than the best: cross-validation within one sitting flatters the others, and in a later sitting here the geometric model held up best. The end of `calibrate` and `refine` lists all five; `omarcheye status` names the one in use.
+- **Switching later.** `omarcheye test` (or right-click the eye, then Test) shows 9 new dots and scores the model in use and the other four, all fitted on your calibration, sitting as you are now. When one beats the model in use by 10%, Enter switches to it.
+- **Leaving one out.** `eyenet = false` in [Settings](#settings) drops the eye-network model (and the appearance model does without the network's reading); `patches = false` drops the appearance model. Each saves its processor time (about 5 ms and under 1 ms a frame). Recalibrate afterwards.
 
 ## Install
 
@@ -74,11 +92,12 @@ Then delete the key binding, if you added one.
 
 ## Setup
 
-1. Put a camera on top of the monitor, centred and facing you. Either:
-   - a plug-in webcam: any 1080p one works, and infrared isn't needed; or
-   - a phone running Flux (`omarchy-flux`), started as a webcam from the phone. It appears as the virtual camera "Flux Camera".
+1. Use the camera you have, centred above the screen you want to use and facing you:
+   - a plug-in webcam on top of the monitor: a 720p or 1080p one, and infrared isn't needed;
+   - a laptop's own camera, when you work on the laptop's screen; or
+   - a phone, if you have no webcam: Flux (`omarchy-flux`) streams it as the virtual camera "Flux Camera". That's what this desk uses.
 
-   With `camera = "auto"`, omarch-eye takes a camera that is sending video, and prefers anything to the laptop's built-in one. `omarcheye cameras` shows what it sees.
+   With `camera = "auto"`, omarch-eye takes a camera that is sending video, and prefers a plug-in or phone camera to a laptop's built-in one; `camera = "/dev/video0"` or part of its name picks another. `omarcheye cameras` shows what it sees.
 2. Install omarch-eye (see [Install](#install)).
 3. Aim the camera: `omarcheye camera` shows its view. Your face should sit in the middle with a green outline. Then calibrate: `omarcheye calibrate`. Sit as you normally do, press Space, and follow the dots with your eyes (about 30 s). Recalibrate after moving the camera or your chair.
 4. Optional, and worth it: `omarcheye refine` (up to 60 s). Move the mouse slowly over the screen, resting it here and there, with your eyes on the pointer. Cells turn green as they fill; Enter finishes early.
@@ -102,7 +121,7 @@ The widget checks the service every 3 s, so a toggle from the command line or a 
 | `omarcheye on` / `off` / `toggle` | Start or stop the service, with a desktop notification |
 | `omarcheye status` | Service state, calibration age and error, the shift learned since, chosen camera |
 | `omarcheye calibrate [--points N] [--monitor NAME]` | Dot calibration (9, 12, 15, 20 or 24 dots); starts the samples afresh |
-| `omarcheye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each kind of model fitted on your samples does; Enter switches to a clearly better one |
+| `omarcheye test` | 9 dots between the calibration ones: how good the calibration is now, in your current posture, and how each of the five [models](#models) fitted on your samples does; Enter switches to one that is 10% better |
 | `omarcheye refine [--seconds S]` | Follow the mouse pointer with your eyes; adds samples and refits |
 | `omarcheye recentre` | One dot in the middle of the screen: how far the estimates have shifted since calibration; omarch-eye shifts them back |
 | `omarcheye preview [--switch]` | Show the gaze point; `--switch` also changes focus |
@@ -116,7 +135,7 @@ The camera view also appears, large, on the start screens of `calibrate` and `re
 
 `calibrate`, `refine`, `recentre`, `test`, `preview`, `camera`, `bench` and `latency` pause the service while they use the camera, then start it again.
 
-The service stays with the camera it was calibrated with. If that camera isn't sending video (the phone stream is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
+The service stays with the camera it was calibrated with. If that camera isn't sending video (unplugged, or a phone stream that is off), the service waits for it and picks it up when it comes back. It notices a stream that stops within about 2 s.
 
 ## Settings
 
@@ -126,7 +145,7 @@ Optional, in `~/.config/omarcheye/config.toml`. Every key and its default is in 
 camera = "auto"          # or "/dev/video2", or part of the camera's name
 delegate = "cpu"         # "gpu" runs the landmark model on the integrated GPU
 eyenet = true            # the eye network on full-resolution eye crops (about 5 ms a frame)
-patches = true           # eye-patch descriptors for the per-person appearance model (under 1 ms)
+patches = true           # eye-patch descriptors for the appearance model (under 1 ms)
 dwell_ms = 250           # the likely window must stay confident this long
 confidence = 0.9         # how sure omarcheye must be before focus moves (higher: fewer flips on borders)
 quick_confidence = 0.97  # this sure for quick_ms (40), and focus moves at once (higher: slower, fewer stray switches)
@@ -144,7 +163,7 @@ The regressions learn how features map to the screen within the postures seen du
 
 - **Screen:** a rectangle of the size the monitor reports (700 × 390 mm here).
 - **Camera:** `dx` mm right of the screen's centre, `lift` mm above its top edge, tilted by `tilt` and `pan`.
-- **Your eye:** where MediaPipe puts your head, times a scale `s`. MediaPipe assumes a 63° lens; a phone's differs, which scales every distance it reports. On this setup it put the face at 47 cm.
+- **Your eye:** where MediaPipe puts your head, times a scale `s`. MediaPipe assumes a 63° lens; yours may differ (this phone's did), which scales every distance it reports. On this setup it put the face at 47 cm.
 - **Your gaze:** a ray along the head's forward axis, turned by the eye's own rotation: `kx·u + ox` across and `ky·v + kl·lid + oy` up.
 - **Where you look:** where the ray meets the screen plane.
 
@@ -156,9 +175,9 @@ A calibration at 23:43 held the head almost still: MediaPipe's distance stayed w
 
 | Fitted on that calibration | Same sitting (cross-validated) | Other sitting (`omarcheye test`) |
 |---|---|---|
-| Basic regression, as it was | 7.7% | 76.7% |
-| Basic, minimum spreads and clamping | 9.4% | 36.6% |
-| Rich, minimum spreads and clamping | 9.7% | 19.7% |
+| Basic model, as it was | 7.7% | 76.7% |
+| Basic model, minimum spreads and clamping | 9.4% | 36.6% |
+| Rich model, minimum spreads and clamping | 9.7% | 19.7% |
 | Geometric model | 8.3% | 19.1% |
 
 The preview now says so when most gaze estimates fall off the screen, and the service log counts them.
@@ -167,19 +186,19 @@ The preview now says so when most gaze estimates fall off the screen, and the se
 
 MediaPipe finds the face on a 256-pixel crop, so on a 1080p camera its iris is a few pixels wide. Two models now read the eyes from the full frame instead, seeded by MediaPipe's landmarks:
 
-- **Eye network** (`eyenet.py`): Intel's `gaze-estimation-adas-0002` (Open Model Zoo, Apache-2.0, 1.9 million weights) on a 60×60 crop of each eye plus head pose, run with OpenVINO (its import-time telemetry is blocked). It reports where the gaze ray meets the camera's plane. Without any calibration it is 7.3° from the truth on MPIIFaceGaze. Calibration fits it as the "eyenet" kind: that point plus the rich features. About 5 ms a frame (it runs twice, on mirrored crops too). `install.sh` downloads it.
-- **Per-person appearance model** (`eyepatch.py`, `appearance.py`): each eye cut out along its corner line, 60×36, equalised, described by a histogram of oriented gradients (2 × 1620 numbers, under 1 ms a frame). A ridge regression learns, from your calibration alone, how those descriptors, head pose, the landmark eye features and the eye network's point map to the screen. Block weights and the ridge strength are picked leaving one dot out at a time. It needs about 20 calibration frames from different spots to beat the landmarks; a calibration gives about 450.
+- **Eye network** (`eyenet.py`): Intel's `gaze-estimation-adas-0002` (Open Model Zoo, Apache-2.0, 1.9 million weights) on a 60×60 crop of each eye plus head pose, run with OpenVINO (its import-time telemetry is blocked). It reports where the gaze ray meets the camera's plane. Without any calibration it is 7.3° from the truth on MPIIFaceGaze. Calibration fits it as the eye-network model: that point plus the rich model's features. About 5 ms a frame (it runs twice, on mirrored crops too). `install.sh` downloads it.
+- **Appearance model** (`eyepatch.py`, `appearance.py`), one per person: each eye cut out along its corner line, 60×36, equalised, described by a histogram of oriented gradients (2 × 1620 numbers, under 1 ms a frame). A ridge regression learns, from your calibration alone, how those descriptors, head pose, the landmark eye features and the eye network's point map to the screen. Block weights and the ridge strength are picked leaving one dot out at a time. It needs about 20 calibration frames from different spots to beat the landmarks; a calibration gives about 450.
 
 Calibration samples now keep each frame's eye descriptor as float16 numbers. They are not images; no picture of your eyes is saved.
 
 Measured on MPIIFaceGaze (15 people, laptop webcams, 1280×720, several days each; harness in [`bench/`](bench/README.md)): calibrate on 30 images from one day, then score the same day (5-fold) and every other day. Error, share of the screen width:
 
-| Features | Same day | Other days, calibrated on 30 | Other days, calibrated on 100 |
+| Model | Same day | Other days, calibrated on 30 | Other days, calibrated on 100 |
 |---|---|---|---|
-| Basic (landmarks) | 12.6% | 18.7% | 16.2% |
-| Rich (landmarks) | 10.6% | 17.3% | 14.5% |
+| Basic model | 12.6% | 18.7% | 16.2% |
+| Rich model | 10.6% | 17.3% | 14.5% |
 | Geometric model | 13.7% | 17.5% | 16.4% |
-| Eye network + rich | 8.9% | 16.6% | 14.2% |
+| Eye-network model (eye network + rich) | 8.9% | 16.6% | 14.2% |
 | Appearance model (descriptor, head, eye features, eye network) | **6.4%** | **14.2%** | **12.1%** |
 
 The gap between columns is what sitting differently costs, for every model. Tried and dropped: a face-based network (MobileGaze, 24 ms a frame, no better), the Timm & Barth eye centre and a head-pose warp of the patches (worse), and a sharper iris centre by disk template (0.2 points better, for 2–3 ms a frame).
